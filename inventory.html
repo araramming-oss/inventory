@@ -344,6 +344,55 @@
     table { min-width: 500px; }
   }
 
+  .hide-mobile { }
+  @media (max-width: 768px) { .hide-mobile { display: none !important; } }
+
+  /* ── 실사 모바일 카드형 ── */
+  @media (max-width: 768px) {
+    #audit-table-wrap table,
+    #audit-table-wrap thead,
+    #audit-table-wrap tbody,
+    #audit-table-wrap th,
+    #audit-table-wrap td,
+    #audit-table-wrap tr { display: block !important; min-width: 0 !important; }
+    #audit-table-wrap thead { display: none !important; }
+    #audit-table-wrap tbody tr {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 10px;
+      padding: 12px;
+      display: flex !important;
+      flex-direction: column;
+      gap: 6px;
+    }
+    #audit-table-wrap tbody td { padding: 0 !important; border: none !important; font-size: 13px; }
+    #audit-table-wrap tbody td[data-label]::before {
+      content: attr(data-label);
+      font-size: 10px;
+      color: var(--text3);
+      font-family: monospace;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: block;
+      margin-bottom: 2px;
+    }
+    #audit-table-wrap .audit-card-row {
+      display: flex !important;
+      gap: 8px;
+      align-items: center;
+    }
+    #audit-table-wrap .audit-input-row {
+      display: flex !important;
+      align-items: center;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    #audit-table-wrap .audit-input-row input {
+      flex: 1;
+    }
+  }
+
   /* UPLOAD MODAL */
   .upload-zone {
     border: 2px dashed var(--border); border-radius: 10px;
@@ -533,9 +582,19 @@
           <button class="btn btn-primary" onclick="submitIO()">등록</button>
         </div>
         <div style="padding:16px;display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr;gap:12px;align-items:end">
-          <div>
+          <div style="position:relative">
             <label>상품 선택</label>
-            <select class="form-select" id="io-product" onchange="updateIOUnit()"></select>
+            <div style="position:relative">
+              <input class="form-input" id="io-product-search" placeholder="🔍 검색하거나 ▼ 클릭해서 선택..."
+                autocomplete="off" oninput="filterIOProduct()" onfocus="showIODropdown()" onblur="setTimeout(()=>{if(!ioDropdownOpen)hideIODropdown()},150)"
+                style="padding-right:36px">
+              <span onclick="toggleIODropdown()" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);cursor:pointer;color:var(--text2);font-size:12px;user-select:none">▼</span>
+            </div>
+            <input type="hidden" id="io-product" value="0">
+            <div id="io-product-dropdown" style="display:none;position:absolute;top:calc(100% - 4px);left:0;right:0;z-index:999;
+              background:var(--surface);border:1px solid var(--accent);border-radius:0 0 8px 8px;
+              max-height:260px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.5)">
+            </div>
           </div>
           <div>
             <label>단위 선택</label>
@@ -596,7 +655,7 @@
         </div>
         <table id="io-print-table">
           <thead><tr>
-            <th>일시</th><th>구분</th><th>학기</th><th>물품명</th><th>수량</th><th>단위</th><th>수령인</th><th>비고 (규격)</th>
+            <th>일시</th><th>구분</th><th>학기</th><th>물품명</th><th>수량</th><th>단위</th><th>규격</th><th>수령인</th><th>비고</th>
           </tr></thead>
           <tbody id="io-table"></tbody>
         </table>
@@ -736,6 +795,13 @@
         </div>
       </div>
 
+      <!-- 복원 안내 -->
+      <div id="audit-restore-tip" style="display:none;align-items:center;gap:10px;margin-bottom:12px;
+        background:rgba(79,142,247,0.1);border:1px solid rgba(79,142,247,0.3);border-radius:8px;padding:10px 16px;font-size:13px">
+        <span>💾 이전에 입력 중이던 실사 데이터가 복원됐습니다.</span>
+        <button class="btn btn-secondary btn-sm" onclick="clearAuditTemp()" style="margin-left:auto">초기화</button>
+      </div>
+
       <!-- 실사 요약 -->
       <div id="audit-summary" style="display:none;margin-bottom:16px">
         <div style="display:flex;gap:10px;flex-wrap:wrap">
@@ -776,6 +842,7 @@
             </div>
           </div>
         </div>
+        <div id="audit-table-wrap" style="overflow-x:auto">
         <table>
           <thead><tr>
             <th>코드</th><th>물품명</th><th>모델명</th><th>규격</th><th>위치</th>
@@ -783,6 +850,7 @@
           </tr></thead>
           <tbody id="audit-table"></tbody>
         </table>
+        </div>
       </div>
 
       <!-- 과거 실사 이력 -->
@@ -1012,7 +1080,7 @@
 
 <script>
 // ========== STATE ==========
-const DATA_VERSION = 'v28-responsive';
+const DATA_VERSION = 'v37-audit-mobile';
 if (localStorage.getItem('edu-version') !== DATA_VERSION) {
   localStorage.removeItem('edu-products');
   localStorage.removeItem('edu-history');
@@ -1023,7 +1091,7 @@ let history = JSON.parse(localStorage.getItem('edu-history') || '[]');
 let actionLog = JSON.parse(localStorage.getItem('edu-log') || '[]');
 let currentIO = 'in';
 let bulkList = [];
-let auditData = {};
+let auditData = JSON.parse(localStorage.getItem('edu-audit-data') || '{}');
 let auditHistoryLog = JSON.parse(localStorage.getItem('edu-audit-history') || '[]');
 
 function saveLog(action, name, detail) {
@@ -1036,9 +1104,9 @@ const CATEGORIES = ['용지','잉크','사무용품','케이블','PC주변기기
 // ========== SAMPLE DATA ==========
 if (!products.length) {
   products = [
-    { code: 'P-001', name: '일반용지', model: '밀크', spec: 'A4', cat: '용지', unit: '박스', safe: 0, pcs: 500, price: 0, qty: 18 },
-    { code: 'P-002', name: '일반용지', model: '밀크', spec: 'A3', cat: '용지', unit: '박스', safe: 0, pcs: 500, price: 0, qty: 6 },
-    { code: 'P-003', name: '일반용지', model: '밀크', spec: 'B4', cat: '용지', unit: '박스', safe: 0, pcs: 500, price: 0, qty: 2 },
+    { code: 'P-001', name: '일반용지', model: '밀크', spec: 'A4', cat: '용지', unit: '박스', safe: 0, pcs: 5, price: 0, qty: 18 },
+    { code: 'P-002', name: '일반용지', model: '밀크', spec: 'A3', cat: '용지', unit: '박스', safe: 0, pcs: 5, price: 0, qty: 6 },
+    { code: 'P-003', name: '일반용지', model: '밀크', spec: 'B4', cat: '용지', unit: '박스', safe: 0, pcs: 5, price: 0, qty: 2 },
     { code: 'P-004', name: '티라미수지', model: '10매', spec: '120g', cat: '용지', unit: '개', safe: 0, price: 0, qty: 0 },
     { code: 'P-005', name: '마쉬멜로우지', model: '', spec: '128g', cat: '용지', unit: '개', safe: 0, price: 0, qty: 0 },
     { code: 'P-006', name: '마쉬멜로우지', model: '', spec: '209g', cat: '용지', unit: '권', safe: 0, price: 0, qty: 0 },
@@ -1493,7 +1561,7 @@ function renderDashboard() {
   tb.innerHTML = recent.map(h => `
     <tr>
       <td style="color:var(--text2);font-family:monospace;font-size:12px">${h.date}</td>
-      <td>${h.product}${(()=>{const tag=h.note&&h.note.length<=10?h.note:([h.model,h.spec].filter(Boolean).join(' '));return tag?`<span style="margin-left:5px;font-size:10px;background:rgba(79,142,247,0.15);color:var(--accent);border-radius:3px;padding:1px 6px;font-family:monospace">${tag}</span>`:''})()}</td>
+      <td>${h.product}</td>
       <td><span class="badge ${h.type==='in'?'badge-blue':'badge-purple'}">${h.type==='in'?'입고':'출고'}</span></td>
       <td style="font-family:monospace">${h.qty}</td>
       <td style="color:var(--text2)">${h.person}</td>
@@ -1586,10 +1654,95 @@ function setIOTab(type, el) {
   document.getElementById('io-form-title').textContent = type === 'in' ? '입고 등록' : '출고 등록';
 }
 function renderIOSelect() {
-  const sel = document.getElementById('io-product');
-  sel.innerHTML = products.map((p,i) => `<option value="${i}">${p.name}${p.model?' ['+p.model+']':''} ${p.spec?'('+p.spec+')':''} — 현재: ${p.qty}${p.unit}</option>`).join('');
+  // 첫 상품 기본 선택
+  document.getElementById('io-product').value = '0';
+  const p0 = products[0];
+  if (p0) document.getElementById('io-product-search').value =
+    `${p0.name}${p0.model?' ['+p0.model+']':''}${p0.spec?' ('+p0.spec+')':''}`;
   updateIOUnit();
 }
+
+function getIOProductLabel(p) {
+  return `${p.name}${p.model?' ['+p.model+']':''}${p.spec?' ('+p.spec+')':''}`;
+}
+
+let ioDropdownOpen = false;
+
+function renderIOSelect() {
+  if (products.length) {
+    document.getElementById('io-product').value = '0';
+    document.getElementById('io-product-search').value = getIOProductLabel(products[0]);
+  }
+  updateIOUnit();
+}
+
+function buildIODropdown(list) {
+  const dd = document.getElementById('io-product-dropdown');
+  if (!list.length) {
+    dd.innerHTML = '<div style="padding:12px 14px;color:var(--text3);font-size:13px">검색 결과 없음</div>';
+    return;
+  }
+  dd.innerHTML = list.map(({p, i}) => {
+    const qtyColor = p.qty===0?'var(--danger)':p.safe>0&&p.qty<=p.safe?'var(--warning)':'var(--text2)';
+    return `<div onmousedown="selectIOProduct(${i})"
+      style="padding:9px 14px;cursor:pointer;font-size:13px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border)"
+      onmouseover="this.style.background='rgba(79,142,247,0.12)'"
+      onmouseout="this.style.background=''">
+      <span>
+        <span style="font-weight:500">${p.name}</span>
+        ${p.model?`<span style="color:var(--text3);font-size:11px;margin-left:4px">[${p.model}]</span>`:''}
+        ${p.spec?`<span style="color:var(--text3);font-size:11px;margin-left:3px">(${p.spec})</span>`:''}
+        <span style="font-size:10px;color:var(--text3);margin-left:5px;background:var(--surface2);padding:1px 5px;border-radius:3px">${p.cat}</span>
+      </span>
+      <span style="font-family:monospace;font-size:12px;color:${qtyColor};margin-left:10px;flex-shrink:0">${p.qty}${p.unit}</span>
+    </div>`;
+  }).join('');
+}
+
+function showIODropdown() {
+  filterIOProduct();
+  document.getElementById('io-product-dropdown').style.display = 'block';
+  ioDropdownOpen = true;
+}
+
+function hideIODropdown() {
+  document.getElementById('io-product-dropdown').style.display = 'none';
+  ioDropdownOpen = false;
+}
+
+function toggleIODropdown() {
+  if (ioDropdownOpen) hideIODropdown();
+  else { document.getElementById('io-product-search').focus(); showIODropdown(); }
+}
+
+function filterIOProduct() {
+  const q = document.getElementById('io-product-search').value.toLowerCase();
+  const list = products.map((p,i)=>({p,i})).filter(({p}) =>
+    !q || p.name.toLowerCase().includes(q) ||
+    (p.model||'').toLowerCase().includes(q) ||
+    (p.spec||'').toLowerCase().includes(q) ||
+    (p.cat||'').toLowerCase().includes(q)
+  );
+  buildIODropdown(list);
+  document.getElementById('io-product-dropdown').style.display = 'block';
+  ioDropdownOpen = true;
+}
+
+function selectIOProduct(i) {
+  const p = products[i];
+  document.getElementById('io-product').value = i;
+  document.getElementById('io-product-search').value = getIOProductLabel(p);
+  hideIODropdown();
+  updateIOUnit();
+}
+
+document.addEventListener('click', e => {
+  const search = document.getElementById('io-product-search');
+  const dd = document.getElementById('io-product-dropdown');
+  if (search && dd && !search.contains(e.target) && !dd.contains(e.target)) hideIODropdown();
+});
+
+
 function updateIOUnit() {
   const pi = parseInt(document.getElementById('io-product').value);
   if (isNaN(pi) || !products[pi]) return;
@@ -1646,6 +1799,8 @@ function submitIO() {
   document.getElementById('io-semester').value = '';
   document.getElementById('io-person').value = '';
   document.getElementById('io-note').value = '';
+  // 첫 상품으로 리셋
+  if (products.length) selectIOProduct(0);
   toast(currentIO === 'in' ? '📥 입고 처리되었습니다' : '📤 출고 처리되었습니다');
 }
 function renderIO() {
@@ -1702,9 +1857,10 @@ function renderIO() {
     <td>${h.product}${(()=>{const tag=h.note&&h.note.length<=10?h.note:([h.model,h.spec].filter(Boolean).join(' '));return tag?`<span style="margin-left:5px;font-size:10px;background:rgba(79,142,247,0.15);color:var(--accent);border-radius:3px;padding:1px 6px;font-family:monospace">${tag}</span>`:''})()}</td>
     <td style="font-family:monospace">${h.qty}</td>
     <td style="color:var(--text2);font-size:12px">${unit}</td>
+    <td style="font-size:12px">${(()=>{const tag=h.note&&h.note.length<=10?h.note:([h.model,h.spec].filter(Boolean).join(' '));return tag?`<span style="background:rgba(79,142,247,0.15);color:var(--accent);border-radius:3px;padding:1px 6px;font-family:monospace;font-size:11px">${tag}</span>`:'-'})()}</td>
     <td style="color:var(--text2)">${h.person}</td>
-    <td style="color:var(--text3);font-size:12px">${h.note||'-'}</td>
-  </tr>`;}).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:24px">내역 없음</td></tr>';
+    <td style="color:var(--text3);font-size:12px">${h.note&&h.note.length<=10?'-':h.note||'-'}</td>
+  </tr>`;}).join('') || '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:24px">내역 없음</td></tr>';
 }
 
 // ========== STOCK ==========
@@ -2104,6 +2260,24 @@ function clearBulkList() { bulkList = []; renderBulkList(); }
 
 
 
+
+// ========== 프린트 ==========
+function printHistory() {
+  const meta = document.getElementById('print-meta');
+  const typeF = document.getElementById('io-filter-type')?.value || '';
+  const yearF = document.getElementById('io-filter-year')?.value || '';
+  const semF = document.getElementById('io-filter-semester')?.value || '';
+  const fromF = document.getElementById('io-filter-from')?.value || '';
+  const toF = document.getElementById('io-filter-to')?.value || '';
+  const typeLabel = typeF === 'in' ? '입고 내역' : typeF === 'out' ? '출고 내역' : '전체 입출고 내역';
+  const yearLabel = yearF ? yearF + '년 ' : '';
+  const semLabel = semF ? semF + ' ' : '';
+  const dateRange = fromF || toF ? ` | 기간: ${fromF||'전체'} ~ ${toF||'전체'}` : '';
+  const cnt = document.getElementById('io-table')?.querySelectorAll('tr').length || 0;
+  if (meta) meta.textContent = `출력일: ${new Date().toLocaleDateString('ko-KR', {year:'numeric',month:'long',day:'numeric',hour:'2-digit',minute:'2-digit'})} | ${yearLabel}${semLabel}${typeLabel}${dateRange} | 총 ${cnt}건`;
+  window.print();
+}
+
 // ========== 연간 장부 PDF ==========
 function exportYearlyPDF() {
   const yearSel = document.getElementById('io-filter-year');
@@ -2200,7 +2374,17 @@ function exportYearlyPDF() {
 
 // ========== 연말 재고 이월 ==========
 function carryOverStock() {
-  const year = new Date().getFullYear();
+  // 입출고 내역 중 가장 최근 연도를 기준으로 이월 연도 계산
+  let dataYear = new Date().getFullYear();
+  if (history.length) {
+    const years = history.map(h => {
+      const m = h.date.match(/(\d{4})\.(\d+)\.(\d+)/);
+      if (m) return parseInt(m[1]);
+      return new Date().getFullYear();
+    }).filter(y => y > 2000);
+    if (years.length) dataYear = Math.max(...years);
+  }
+  const year = dataYear;
   const nextYear = year + 1;
   if (!confirm(`${year}년 연말 실사를 마치고 ${nextYear}년으로 재고를 이월할까요?\n\n현재 재고 수량이 그대로 유지되고\n입출고 내역에 "연도이월" 메모가 추가됩니다.`)) return;
 
@@ -2217,7 +2401,7 @@ function carryOverStock() {
       });
     }
   });
-  saveLog('연도이월', `${year}→${nextYear}`, `${products.filter(p=>p.qty>0).length}종 이월`);
+  saveLog('연도이월', `${year}년→${nextYear}년`, `${products.filter(p=>p.qty>0).length}종 이월`);
   save();
 
   // 연도 필터 초기화 (새 연도 반영)
@@ -2226,11 +2410,17 @@ function carryOverStock() {
     while (yearSel.options.length > 1) yearSel.remove(1);
   }
   renderIO();
-  toast(`✅ ${nextYear}년으로 재고 이월 완료`);
+  toast(`✅ ${year}년 → ${nextYear}년 재고 이월 완료`);
 }
 
 // ========== 정기 실사 ==========
 function renderAudit() {
+  // 저장된 실사 데이터 있으면 안내
+  const savedCount = Object.keys(auditData).filter(k => auditData[k] !== undefined).length;
+  if (savedCount > 0) {
+    const tip = document.getElementById('audit-restore-tip');
+    if (tip) tip.style.display = 'flex';
+  }
   // 카테고리 필터 옵션 초기화
   const catSel = document.getElementById('audit-cat-filter');
   if (catSel && catSel.options.length <= 1) {
@@ -2266,21 +2456,25 @@ function renderAudit() {
     if (diffOnly && (diff === null || diff === 0)) return '';
 
     return `<tr style="${diff !== null && diff !== 0 ? 'background:rgba(255,255,255,0.02)' : ''}">
-      <td style="font-family:monospace;font-size:11px;color:var(--text3)">${p.code}</td>
-      <td>${p.name}</td>
-      <td style="color:var(--text2);font-size:12px">${p.model||'-'}</td>
-      <td style="color:var(--text2);font-size:12px">${p.spec||'-'}</td>
-      <td style="color:var(--text2);font-size:12px">${p.loc||'—'}</td>
-      <td style="font-family:monospace;font-weight:500">${p.qty}<span style="font-size:11px;color:var(--text3)">${p.unit}</span></td>
-      <td>
+      <td data-label="코드" style="font-family:monospace;font-size:11px;color:var(--text3)">${p.code}</td>
+      <td data-label="물품명">
+        <span style="font-weight:500">${p.name}</span>
+        ${p.model?`<span style="font-size:11px;color:var(--text3);margin-left:4px">[${p.model}]</span>`:''}
+        ${p.spec?`<span style="font-size:11px;color:var(--accent);margin-left:3px">(${p.spec})</span>`:''}
+      </td>
+      <td data-label="모델명" style="color:var(--text2);font-size:12px" class="hide-mobile">${p.model||'-'}</td>
+      <td data-label="규격" style="color:var(--text2);font-size:12px" class="hide-mobile">${p.spec||'-'}</td>
+      <td data-label="위치" style="color:var(--text2);font-size:12px" class="hide-mobile">${p.loc||'—'}</td>
+      <td data-label="시스템 수량" style="font-family:monospace;font-weight:500">${p.qty}<span style="font-size:11px;color:var(--text3)">${p.unit}</span></td>
+      <td data-label="실물 수량 입력">
         <input type="number" min="0" value="${inputVal}"
           placeholder="실물 수량"
           oninput="auditData[${pi}]=this.value===''?undefined:parseFloat(this.value);updateAuditSummary();updateAuditRow(this, ${pi})"
-          style="width:90px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-family:inherit;font-size:13px;outline:none;transition:border-color 0.15s"
+          style="width:90px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-family:inherit;font-size:16px;outline:none;transition:border-color 0.15s"
           onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
       </td>
-      <td style="font-family:monospace;font-weight:500;color:${diffColor}" id="audit-diff-${pi}">${diffStr}</td>
-      <td id="audit-status-${pi}">${statusBadge}</td>
+      <td data-label="차이" style="font-family:monospace;font-weight:500;color:${diffColor}" id="audit-diff-${pi}">${diffStr}</td>
+      <td data-label="상태" id="audit-status-${pi}">${statusBadge}</td>
     </tr>`;
   }).join('');
 
@@ -2310,7 +2504,12 @@ function updateAuditRow(input, pi) {
   }
 }
 
+function saveAuditData() {
+  localStorage.setItem('edu-audit-data', JSON.stringify(auditData));
+}
+
 function updateAuditSummary() {
+  saveAuditData();
   let match=0, minus=0, plus=0, empty=0;
   products.forEach((p, pi) => {
     const val = auditData[pi];
@@ -2374,6 +2573,7 @@ function applyAudit() {
 
   save();
   auditData = {};
+  localStorage.removeItem('edu-audit-data');
   renderAudit();
   renderDashboard();
   toast(`✅ ${diffs.length}건 실사 조정 완료`);
@@ -2393,6 +2593,15 @@ function renderAuditHistory() {
     <td style="font-family:monospace;color:${a.diffCount>0?'var(--warning)':'var(--success)'}">${a.diffCount}건</td>
     <td style="font-size:12px;color:var(--text2);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.details||'차이 없음'}</td>
   </tr>`).join('');
+}
+
+function clearAuditTemp() {
+  auditData = {};
+  localStorage.removeItem('edu-audit-data');
+  const tip = document.getElementById('audit-restore-tip');
+  if (tip) tip.style.display = 'none';
+  renderAudit();
+  toast('🗑️ 실사 입력값이 초기화됐습니다');
 }
 
 function clearAuditHistory() {
