@@ -1182,7 +1182,7 @@ function sbToLog(r) {
 
 <script>
 // ========== STATE ==========
-const DATA_VERSION = 'v42-edufine-zip';
+const DATA_VERSION = 'v44-alert-filter';
 if (localStorage.getItem('edu-version') !== DATA_VERSION) {
   // 버전이 바뀌어도 기존 데이터는 유지 — 버전 번호만 업데이트
   localStorage.setItem('edu-version', DATA_VERSION);
@@ -1780,14 +1780,7 @@ function setIOTab(type, el) {
   el.classList.add('active');
   document.getElementById('io-form-title').textContent = type === 'in' ? '입고 등록' : '출고 등록';
 }
-function renderIOSelect() {
-  // 첫 상품 기본 선택
-  document.getElementById('io-product').value = '0';
-  const p0 = products[0];
-  if (p0) document.getElementById('io-product-search').value =
-    `${p0.name}${p0.model?' ['+p0.model+']':''}${p0.spec?' ('+p0.spec+')':''}`;
-  updateIOUnit();
-}
+// renderIOSelect → 아래 최신 버전 사용
 
 function getIOProductLabel(p) {
   return `${p.name}${p.model?' ['+p.model+']':''}${p.spec?' ('+p.spec+')':''}`;
@@ -2041,11 +2034,20 @@ function renderAlerts() {
   });
   const alertHeader = outOfStock.length || lowStock.length
     ? `<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-        <div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 16px;font-size:13px">
+        <div onclick="filterAlerts('danger')" id="alert-btn-danger"
+          style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 16px;font-size:13px;cursor:pointer;transition:all 0.15s;user-select:none"
+          onmouseover="this.style.background='rgba(239,68,68,0.2)'" onmouseout="this.style.background='rgba(239,68,68,0.1)'">
           🚨 품절 <strong style="color:var(--danger)">${outOfStock.length}종</strong>
         </div>
-        <div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 16px;font-size:13px">
+        <div onclick="filterAlerts('warn')" id="alert-btn-warn"
+          style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 16px;font-size:13px;cursor:pointer;transition:all 0.15s;user-select:none"
+          onmouseover="this.style.background='rgba(245,158,11,0.2)'" onmouseout="this.style.background='rgba(245,158,11,0.1)'">
           ⚠️ 부족 <strong style="color:var(--warning)">${lowStock.length}종</strong>
+        </div>
+        <div onclick="filterAlerts('all')" id="alert-btn-all"
+          style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 16px;font-size:13px;cursor:pointer;transition:all 0.15s;user-select:none"
+          onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">
+          전체 보기
         </div>
       </div>` : '';
   if (!items.length) {
@@ -2409,8 +2411,7 @@ function printHistory() {
 // ========== 에듀파인 내보내기 ==========
 function exportEdufine() {
   // 상품 선택 모달 띄우기
-  const cats = ['전체', ...CATEGORIES];
-  const catOptions = cats.map(c => `<option value="${c}">${c}</option>`).join('');
+  const catOptions = CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('');
   const prodOptions = products.map((p,i) =>
     `<option value="${i}">${p.name}${p.model?' ['+p.model+']':''}${p.spec?' ('+p.spec+')':''}</option>`
   ).join('');
@@ -2420,9 +2421,16 @@ function exportEdufine() {
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;width:480px;max-width:95vw">
         <div style="font-size:16px;font-weight:500;margin-bottom:16px">📋 에듀파인 수불상세내역 내보내기</div>
         <div class="form-row">
+          <label>카테고리 선택</label>
+          <select class="form-select" id="ef-cat" onchange="updateEfProducts()">
+            <option value="">전체 카테고리</option>
+            ${catOptions}
+          </select>
+        </div>
+        <div class="form-row">
           <label>상품 선택</label>
           <select class="form-select" id="ef-product">
-            <option value="">-- 상품 선택 --</option>
+            <option value="">-- 전체 상품 --</option>
             ${prodOptions}
           </select>
         </div>
@@ -2521,6 +2529,19 @@ function doExportEdufine() {
 }
 
 
+
+function updateEfProducts() {
+  const catF = document.getElementById('ef-cat')?.value || '';
+  const sel = document.getElementById('ef-product');
+  if (!sel) return;
+  const filtered = catF ? products.filter(p => p.cat === catF) : products;
+  sel.innerHTML = '<option value="">-- 전체 상품 --</option>' +
+    filtered.map((p, i) => {
+      const realIdx = products.indexOf(p);
+      return `<option value="${realIdx}">${p.name}${p.model?' ['+p.model+']':''}${p.spec?' ('+p.spec+')':''}</option>`;
+    }).join('');
+}
+
 // ========== 에듀파인 전체 ZIP 내보내기 ==========
 async function exportEdufineAll() {
   const fromF = document.getElementById('ef-from')?.value || '';
@@ -2540,8 +2561,11 @@ async function exportEdufineAll() {
   const zip = new JSZip();
   let fileCount = 0;
 
-  for (let pi = 0; pi < products.length; pi++) {
-    const p = products[pi];
+  const catF2 = document.getElementById('ef-cat')?.value || '';
+  const filteredProducts = catF2 ? products.filter(p => p.cat === catF2) : products;
+
+  for (let pi = 0; pi < filteredProducts.length; pi++) {
+    const p = filteredProducts[pi];
 
     // 해당 상품의 입출고 내역 필터
     let list = history.filter(h => {
@@ -2587,7 +2611,7 @@ async function exportEdufineAll() {
     fileCount++;
 
     document.getElementById('ef-progress-text').textContent =
-      `${pi+1} / ${products.length} 처리 중... (${fileCount}개 파일)`;
+      `${pi+1} / ${filteredProducts.length} 처리 중... (${fileCount}개 파일)`;
     await new Promise(r => setTimeout(r, 0));
   }
 
@@ -2985,6 +3009,30 @@ function exportExcel() {
   a.download = `재고관리_${new Date().toLocaleDateString('ko-KR').replace(/\s/g,'')}.csv`;
   a.click();
   toast('📥 엑셀 파일이 다운로드됩니다');
+}
+
+
+// ========== 알림 필터 ==========
+let currentAlertFilter = 'all';
+function filterAlerts(type) {
+  currentAlertFilter = type;
+  const items = document.querySelectorAll('#alert-list .alert-item');
+  items.forEach(item => {
+    if (type === 'all') {
+      item.style.display = 'flex';
+    } else if (type === 'danger') {
+      item.style.display = item.classList.contains('danger') ? 'flex' : 'none';
+    } else if (type === 'warn') {
+      item.style.display = item.classList.contains('warn') ? 'flex' : 'none';
+    }
+  });
+  // 버튼 활성화 표시
+  const btnDanger = document.getElementById('alert-btn-danger');
+  const btnWarn   = document.getElementById('alert-btn-warn');
+  const btnAll    = document.getElementById('alert-btn-all');
+  if (btnDanger) btnDanger.style.outline = type==='danger' ? '2px solid var(--danger)' : 'none';
+  if (btnWarn)   btnWarn.style.outline   = type==='warn'   ? '2px solid var(--warning)' : 'none';
+  if (btnAll)    btnAll.style.outline    = type==='all'    ? '2px solid var(--accent)' : 'none';
 }
 
 // ========== MODAL ==========
