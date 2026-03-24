@@ -441,6 +441,101 @@
     display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;
   }
 </style>
+
+<script>
+const SUPA_URL = 'https://pmkiptssekzyardupqvl.supabase.co';
+const SUPA_KEY = 'sb_publishable_8zU3M6zHww5Ru_Vs0gyt3g_yBMa5m5l';
+
+async function sbFetch(path, method='GET', body=null) {
+  const opts = {
+    method,
+    headers: {
+      'apikey': SUPA_KEY,
+      'Authorization': 'Bearer ' + SUPA_KEY,
+      'Content-Type': 'application/json',
+      'Prefer': method==='POST' ? 'return=representation' : ''
+    }
+  };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(SUPA_URL + '/rest/v1/' + path, opts);
+  if (!res.ok) { const e = await res.text(); console.error('Supabase error:', e); return null; }
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+// 전체 상품 불러오기
+async function dbLoadProducts() {
+  const data = await sbFetch('inventory_products?order=code.asc&limit=1000');
+  return data || [];
+}
+
+// 전체 히스토리 불러오기
+async function dbLoadHistory() {
+  const data = await sbFetch('inventory_history?order=created_at.asc&limit=5000');
+  return data || [];
+}
+
+// 전체 로그 불러오기
+async function dbLoadLogs() {
+  const data = await sbFetch('inventory_logs?order=created_at.desc&limit=500');
+  return data || [];
+}
+
+// 상품 저장 (전체 upsert)
+async function dbSaveProducts(products) {
+  const rows = products.map(p => ({
+    code: p.code, name: p.name, model: p.model||'', spec: p.spec||'',
+    cat: p.cat, loc: p.loc||'', unit: p.unit,
+    safe: p.safe||0, pcs: p.pcs||0, qty: p.qty||0, price: p.price||0
+  }));
+  // 전체 삭제 후 재삽입
+  await sbFetch('inventory_products?code=neq.NEVER_DELETE_ALL', 'DELETE');
+  if (rows.length) await sbFetch('inventory_products', 'POST', rows);
+}
+
+// 히스토리 1건 추가
+async function dbAddHistory(h) {
+  await sbFetch('inventory_history', 'POST', [{
+    date: h.date, type: h.type, product: h.product,
+    model: h.model||'', spec: h.spec||'', qty: h.qty,
+    qty_unit: h.qtyUnit||'', person: h.person||'',
+    semester: h.semester||'', note: h.note||''
+  }]);
+}
+
+// 히스토리 여러건 추가
+async function dbAddHistoryBulk(list) {
+  if (!list.length) return;
+  const rows = list.map(h => ({
+    date: h.date, type: h.type, product: h.product,
+    model: h.model||'', spec: h.spec||'', qty: h.qty,
+    qty_unit: h.qtyUnit||'', person: h.person||'',
+    semester: h.semester||'', note: h.note||''
+  }));
+  await sbFetch('inventory_history', 'POST', rows);
+}
+
+// 로그 추가
+async function dbAddLog(l) {
+  await sbFetch('inventory_logs', 'POST', [{
+    date: l.date, action: l.action, name: l.name, detail: l.detail
+  }]);
+}
+
+// Supabase → 로컬 형식 변환
+function sbToProduct(r) {
+  return { code:r.code, name:r.name, model:r.model, spec:r.spec,
+    cat:r.cat, loc:r.loc, unit:r.unit, safe:r.safe, pcs:r.pcs, qty:r.qty, price:r.price };
+}
+function sbToHistory(r) {
+  return { date:r.date, type:r.type, product:r.product, model:r.model,
+    spec:r.spec, qty:r.qty, qtyUnit:r.qty_unit, person:r.person,
+    semester:r.semester, note:r.note };
+}
+function sbToLog(r) {
+  return { date:r.date, action:r.action, name:r.name, detail:r.detail };
+}
+</script>
 </head>
 <body>
 <header>
@@ -1080,10 +1175,9 @@
 
 <script>
 // ========== STATE ==========
-const DATA_VERSION = 'v37-audit-mobile';
+const DATA_VERSION = 'v39-supabase';
 if (localStorage.getItem('edu-version') !== DATA_VERSION) {
-  localStorage.removeItem('edu-products');
-  localStorage.removeItem('edu-history');
+  // 버전이 바뀌어도 기존 데이터는 유지 — 버전 번호만 업데이트
   localStorage.setItem('edu-version', DATA_VERSION);
 }
 let products = JSON.parse(localStorage.getItem('edu-products') || '[]');
@@ -1095,9 +1189,11 @@ let auditData = JSON.parse(localStorage.getItem('edu-audit-data') || '{}');
 let auditHistoryLog = JSON.parse(localStorage.getItem('edu-audit-history') || '[]');
 
 function saveLog(action, name, detail) {
-  actionLog.unshift({ date: fmt(new Date()), action, name, detail });
+  const entry = { date: fmt(new Date()), action, name, detail };
+  actionLog.unshift(entry);
   if (actionLog.length > 500) actionLog = actionLog.slice(0, 500);
   localStorage.setItem('edu-log', JSON.stringify(actionLog));
+  dbAddLog(entry).catch(e => console.warn('Supabase log error:', e));
 }
 const CATEGORIES = ['용지','잉크','사무용품','케이블','PC주변기기','실험실습재료','기타'];
 
@@ -1527,6 +1623,18 @@ function fmt(d) {
 function save() {
   localStorage.setItem('edu-products', JSON.stringify(products));
   localStorage.setItem('edu-history', JSON.stringify(history));
+  // Supabase 비동기 저장 (UI 블로킹 없이)
+  dbSaveProducts(products).catch(e => console.warn('Supabase save error:', e));
+}
+
+function saveHistoryItem(h) {
+  localStorage.setItem('edu-history', JSON.stringify(history));
+  dbAddHistory(h).catch(e => console.warn('Supabase history error:', e));
+}
+
+function saveHistoryBulk(list) {
+  localStorage.setItem('edu-history', JSON.stringify(history));
+  dbAddHistoryBulk(list).catch(e => console.warn('Supabase bulk error:', e));
 }
 
 // ========== NAV ==========
@@ -2671,36 +2779,72 @@ function toast(msg) {
 }
 
 // ========== INIT ==========
-// 기존 히스토리에 model·spec 없는 항목 자동 보완
-history = history.map(h => {
-  if (!h.model && !h.spec) {
-    // note가 규격과 일치하는 상품 우선 매칭 (예: G5090/G7090 + note:'C' → spec:'C' 상품)
-    const p = products.find(p => p.name === h.product && (p.spec === h.note || p.model === h.note))
-           || products.find(p => p.name === h.product);
-    if (p) { h.model = p.model||''; h.spec = p.spec||''; }
-  }
-  return h;
-});
-document.getElementById('now-date').textContent = new Date().toLocaleDateString('ko-KR', {year:'numeric',month:'long',day:'numeric'});
+async function initApp() {
+  // 로딩 화면
+  document.body.insertAdjacentHTML('afterbegin',
+    '<div id="supa-loading" style="position:fixed;inset:0;background:#0f1117;z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px">' +
+    '<div style="font-size:32px">📦</div>' +
+    '<div style="font-size:14px;color:#8b93b8;font-family:sans-serif">데이터 불러오는 중...</div>' +
+    '</div>'
+  );
 
-// 마지막 페이지 복원
-const savedPage = localStorage.getItem('edu-current-page') || 'dashboard';
-const pageMap = { dashboard: 0, products: 1, inout: 2, stock: 3, alerts: 4, stats: 5, bulkout: 6, audit: 7, log: 8 };
-const navIdx = pageMap[savedPage] ?? 0;
-document.querySelectorAll('.nav-item')[navIdx]?.classList.add('active');
-document.querySelectorAll('.nav-item:not(.active)').forEach(n => n.classList.remove('active'));
-document.getElementById('page-' + savedPage)?.classList.add('active');
-document.getElementById('page-dashboard')?.classList.toggle('active', savedPage === 'dashboard');
-if (savedPage === 'dashboard') renderDashboard();
-else if (savedPage === 'products') renderProducts();
-else if (savedPage === 'inout') { renderIOSelect(); renderIO(); }
-else if (savedPage === 'stock') renderStock();
-else if (savedPage === 'alerts') renderAlerts();
-else if (savedPage === 'stats') renderStats();
-else if (savedPage === 'bulkout') renderBulkOut();
-else if (savedPage === 'audit') renderAudit();
-else if (savedPage === 'log') renderLog();
-else renderDashboard();
+  try {
+    const [sbProducts, sbHistory, sbLogs] = await Promise.all([
+      dbLoadProducts(), dbLoadHistory(), dbLoadLogs()
+    ]);
+
+    if (sbProducts && sbProducts.length > 0) {
+      products = sbProducts.map(sbToProduct);
+      history = sbHistory.map(sbToHistory);
+      actionLog = sbLogs.map(sbToLog);
+      localStorage.setItem('edu-products', JSON.stringify(products));
+      localStorage.setItem('edu-history', JSON.stringify(history));
+      localStorage.setItem('edu-log', JSON.stringify(actionLog));
+      console.log('✅ Supabase 로드:', products.length, '종');
+    } else if (products.length > 0) {
+      console.log('📤 localStorage → Supabase 초기 업로드...');
+      await dbSaveProducts(products);
+      if (history.length) await dbAddHistoryBulk(history);
+      console.log('✅ 업로드 완료');
+    }
+  } catch(e) {
+    console.warn('Supabase 연결 실패, localStorage 사용:', e);
+  }
+
+  // 히스토리 model·spec 보완
+  history = history.map(h => {
+    if (!h.model && !h.spec) {
+      const p = products.find(p => p.name === h.product && (p.spec === h.note || p.model === h.note))
+             || products.find(p => p.name === h.product);
+      if (p) { h.model = p.model||''; h.spec = p.spec||''; }
+    }
+    return h;
+  });
+
+  document.getElementById('supa-loading')?.remove();
+  document.getElementById('now-date').textContent = new Date().toLocaleDateString('ko-KR', {year:'numeric',month:'long',day:'numeric'});
+
+  // 마지막 페이지 복원
+  const savedPage = localStorage.getItem('edu-current-page') || 'dashboard';
+  const pageMap = { dashboard: 0, products: 1, inout: 2, stock: 3, alerts: 4, stats: 5, bulkout: 6, audit: 7, log: 8 };
+  const navIdx = pageMap[savedPage] ?? 0;
+  document.querySelectorAll('.nav-item')[navIdx]?.classList.add('active');
+  document.querySelectorAll('.nav-item:not(.active)').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + savedPage)?.classList.add('active');
+  document.getElementById('page-dashboard')?.classList.toggle('active', savedPage === 'dashboard');
+  if (savedPage === 'dashboard') renderDashboard();
+  else if (savedPage === 'products') renderProducts();
+  else if (savedPage === 'inout') { renderIOSelect(); renderIO(); }
+  else if (savedPage === 'stock') renderStock();
+  else if (savedPage === 'alerts') renderAlerts();
+  else if (savedPage === 'stats') renderStats();
+  else if (savedPage === 'bulkout') renderBulkOut();
+  else if (savedPage === 'audit') renderAudit();
+  else if (savedPage === 'log') renderLog();
+  else renderDashboard();
+}
+
+initApp();
 </script>
 </body>
 </html>
