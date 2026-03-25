@@ -444,7 +444,7 @@
 
 <script>
 const SUPA_URL = 'https://pmkiptssekzyardupqvl.supabase.co';
-const SUPA_KEY = 'sb_publishable_8zU3M6zHww5Ru_Vs0gyt3g_yBMa5m5l';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBta2lwdHNzZWt6eWFyZHVwcXZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5NzM0NDgsImV4cCI6MjA4OTU0OTQ0OH0.I56s9D4Qp4toHf9nDyesv2vrmOPC1fFrYaSAgXY8cDE';
 
 async function sbFetch(path, method='GET', body=null) {
   const opts = {
@@ -1218,7 +1218,7 @@ function sbToLog(r) {
 
 <script>
 // ========== STATE ==========
-const DATA_VERSION = 'v48-audit-sync';
+const DATA_VERSION = 'v50-anonkey';
 if (localStorage.getItem('edu-version') !== DATA_VERSION) {
   // 버전이 바뀌어도 기존 데이터는 유지 — 버전 번호만 업데이트
   localStorage.setItem('edu-version', DATA_VERSION);
@@ -3004,7 +3004,7 @@ function fillAuditFromSystem() {
   toast('✅ 시스템 수량으로 자동 입력됐습니다');
 }
 
-function applyAudit() {
+async function applyAudit() {
   const diffs = [];
   products.forEach((p, pi) => {
     const val = auditData[pi];
@@ -3017,7 +3017,11 @@ function applyAudit() {
     (diffs.length > 5 ? `\n... 외 ${diffs.length-5}건` : '');
   if (!confirm(msg)) return;
 
+  // 로딩 표시
+  toast('⏳ 저장 중...');
+
   let adjDetails = [];
+  const prevLen = history.length;
   diffs.forEach(d => {
     const diff = d.after - d.before;
     products[d.pi].qty = d.after;
@@ -3031,6 +3035,22 @@ function applyAudit() {
     saveLog('실사조정', d.name, `${d.before}${d.unit} → ${d.after}${d.unit}`);
   });
 
+  // localStorage 먼저 저장
+  localStorage.setItem('edu-products', JSON.stringify(products));
+  localStorage.setItem('edu-history', JSON.stringify(history));
+
+  // Supabase에 await로 확실하게 저장 (타이밍 문제 방지)
+  const auditNewHistory = history.slice(prevLen);
+  try {
+    await Promise.all([
+      dbSaveProducts(products),
+      dbAddHistoryBulk(auditNewHistory)
+    ]);
+    console.log('✅ 실사 반영 Supabase 저장 완료');
+  } catch(e) {
+    console.warn('Supabase audit error:', e);
+  }
+
   // 실사 이력 저장
   const catF = document.getElementById('audit-cat-filter')?.value || '전체';
   auditHistoryLog.unshift({
@@ -3042,13 +3062,6 @@ function applyAudit() {
   });
   localStorage.setItem('edu-audit-history', JSON.stringify(auditHistoryLog));
 
-  localStorage.setItem('edu-products', JSON.stringify(products));
-  localStorage.setItem('edu-history', JSON.stringify(history));
-  const auditNewHistory = history.slice(-(diffs.length));
-  Promise.all([
-    dbSaveProducts(products),
-    dbAddHistoryBulk(auditNewHistory)
-  ]).catch(e => console.warn('Supabase audit error:', e));
   auditData = {};
   localStorage.removeItem('edu-audit-data');
   sbFetch('inventory_logs?action=eq.audit_temp', 'DELETE').catch(e => console.warn(e));
