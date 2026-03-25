@@ -521,7 +521,11 @@ async function dbUpdateProduct(p) {
     },
     body: JSON.stringify(row)
   });
-  if (!res.ok) console.error('dbUpdateProduct error:', await res.text());
+  if (!res.ok) {
+    const err = await res.text();
+    console.error('dbUpdateProduct error:', err);
+    throw new Error(err);
+  }
 }
 
 // 상품 1개 삭제
@@ -1218,7 +1222,7 @@ function sbToLog(r) {
 
 <script>
 // ========== STATE ==========
-const DATA_VERSION = 'v50-anonkey';
+const DATA_VERSION = 'v51-audit-fix';
 if (localStorage.getItem('edu-version') !== DATA_VERSION) {
   // 버전이 바뀌어도 기존 데이터는 유지 — 버전 번호만 업데이트
   localStorage.setItem('edu-version', DATA_VERSION);
@@ -3039,16 +3043,18 @@ async function applyAudit() {
   localStorage.setItem('edu-products', JSON.stringify(products));
   localStorage.setItem('edu-history', JSON.stringify(history));
 
-  // Supabase에 await로 확실하게 저장 (타이밍 문제 방지)
+  // Supabase에 await로 확실하게 저장 — 변경된 상품만 개별 업데이트
   const auditNewHistory = history.slice(prevLen);
   try {
+    // 변경된 상품만 개별 업데이트 (전체 저장 대신)
     await Promise.all([
-      dbSaveProducts(products),
+      ...diffs.map(d => dbUpdateProduct(products[d.pi])),
       dbAddHistoryBulk(auditNewHistory)
     ]);
-    console.log('✅ 실사 반영 Supabase 저장 완료');
+    console.log('✅ 실사 반영 Supabase 저장 완료:', diffs.length, '건');
   } catch(e) {
     console.warn('Supabase audit error:', e);
+    // 실패해도 localStorage는 이미 저장됨
   }
 
   // 실사 이력 저장
