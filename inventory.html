@@ -482,15 +482,51 @@ async function dbLoadLogs() {
 }
 
 // 상품 저장 (전체 upsert)
-async function dbSaveProducts(products) {
-  const rows = products.map(p => ({
+async function dbSaveProducts(prods) {
+  // upsert 방식 — code 기준으로 있으면 업데이트, 없으면 삽입
+  const rows = prods.map(p => ({
     code: p.code, name: p.name, model: p.model||'', spec: p.spec||'',
     cat: p.cat, loc: p.loc||'', unit: p.unit,
     safe: p.safe||0, pcs: p.pcs||0, qty: p.qty||0, price: p.price||0
   }));
-  // 전체 삭제 후 재삽입
-  await sbFetch('inventory_products?code=neq.NEVER_DELETE_ALL', 'DELETE');
-  if (rows.length) await sbFetch('inventory_products', 'POST', rows);
+  if (!rows.length) return;
+  // upsert: code가 같으면 업데이트
+  const res = await fetch(SUPA_URL + '/rest/v1/inventory_products?on_conflict=code', {
+    method: 'POST',
+    headers: {
+      'apikey': SUPA_KEY,
+      'Authorization': 'Bearer ' + SUPA_KEY,
+      'Content-Type': 'application/json',
+      'Prefer': 'resolution=merge-duplicates,return=minimal'
+    },
+    body: JSON.stringify(rows)
+  });
+  if (!res.ok) console.error('dbSaveProducts error:', await res.text());
+}
+
+// 상품 1개만 업데이트 (안전재고, 수량 등 개별 수정 시)
+async function dbUpdateProduct(p) {
+  const row = {
+    code: p.code, name: p.name, model: p.model||'', spec: p.spec||'',
+    cat: p.cat, loc: p.loc||'', unit: p.unit,
+    safe: p.safe||0, pcs: p.pcs||0, qty: p.qty||0, price: p.price||0
+  };
+  const res = await fetch(SUPA_URL + '/rest/v1/inventory_products?code=eq.' + encodeURIComponent(p.code), {
+    method: 'PATCH',
+    headers: {
+      'apikey': SUPA_KEY,
+      'Authorization': 'Bearer ' + SUPA_KEY,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=minimal'
+    },
+    body: JSON.stringify(row)
+  });
+  if (!res.ok) console.error('dbUpdateProduct error:', await res.text());
+}
+
+// 상품 1개 삭제
+async function dbDeleteProduct(code) {
+  await sbFetch('inventory_products?code=eq.' + encodeURIComponent(code), 'DELETE');
 }
 
 // 히스토리 1건 추가
@@ -1182,7 +1218,7 @@ function sbToLog(r) {
 
 <script>
 // ========== STATE ==========
-const DATA_VERSION = 'v44-alert-filter';
+const DATA_VERSION = 'v48-audit-sync';
 if (localStorage.getItem('edu-version') !== DATA_VERSION) {
   // 버전이 바뀌어도 기존 데이터는 유지 — 버전 번호만 업데이트
   localStorage.setItem('edu-version', DATA_VERSION);
@@ -1192,6 +1228,7 @@ let history = JSON.parse(localStorage.getItem('edu-history') || '[]');
 let actionLog = JSON.parse(localStorage.getItem('edu-log') || '[]');
 let currentIO = 'in';
 let bulkList = [];
+let uploadRows = [];
 let auditData = JSON.parse(localStorage.getItem('edu-audit-data') || '{}');
 let auditHistoryLog = JSON.parse(localStorage.getItem('edu-audit-history') || '[]');
 
@@ -1734,7 +1771,9 @@ function addProduct() {
   if (!code || !name) { toast('❌ 코드와 물품명은 필수입니다'); return; }
   products.push({ code, name, model, spec, cat, loc, unit: unit||'개', safe, pcs, price: 0, qty: init });
   if (init > 0) history.push({ date: fmt(new Date()), type: 'in', product: name, qty: init, person: '초기등록', note: spec ? spec : '초기재고' });
-  save(); closeModal('add-product'); renderProducts();
+  localStorage.setItem('edu-products', JSON.stringify(products));
+  dbUpdateProduct(products[products.length-1]).catch(e => console.warn('Supabase add error:', e));
+  closeModal('add-product'); renderProducts();
   ['p-code','p-name','p-model','p-spec','p-loc','p-unit','p-safe','p-pcs','p-init'].forEach(id => document.getElementById(id).value = '');
   toast('✅ 상품이 등록되었습니다');
 }
@@ -1765,12 +1804,19 @@ function saveProduct() {
   products[i].pcs = parseInt(document.getElementById('ep-pcs').value)||0;
   products[i].loc = document.getElementById('ep-loc').value.trim();
   saveLog('수정', products[i].name, `코드: ${products[i].code}`);
-  save(); closeModal('edit-product'); renderProducts(); toast('✅ 수정되었습니다');
+  // localStorage + Supabase 개별 업데이트
+  localStorage.setItem('edu-products', JSON.stringify(products));
+  dbUpdateProduct(products[i]).catch(e => console.warn('Supabase update error:', e));
+  closeModal('edit-product'); renderProducts(); toast('✅ 수정되었습니다');
 }
 function delProduct(i) {
   if (!confirm(`"${products[i].name}"을(를) 삭제할까요?`)) return;
   saveLog('삭제', products[i].name, `코드: ${products[i].code} / 카테고리: ${products[i].cat}`);
-  products.splice(i, 1); save(); renderProducts(); toast('🗑️ 삭제되었습니다');
+  const delCode = products[i].code;
+  products.splice(i, 1);
+  localStorage.setItem('edu-products', JSON.stringify(products));
+  dbDeleteProduct(delCode).catch(e => console.warn('Supabase delete error:', e));
+  renderProducts(); toast('🗑️ 삭제되었습니다');
 }
 
 // ========== INOUT ==========
@@ -1913,8 +1959,13 @@ function submitIO() {
   if (currentIO === 'in') p.qty = Math.round((p.qty + qty) * 1000) / 1000;
   else p.qty = Math.round((p.qty - qty) * 1000) / 1000;
   const semester = currentIO === 'in' ? (document.getElementById('io-semester').value || '') : '';
-  history.push({ date: fmt(new Date()), type: currentIO, product: p.name, model: p.model||'', spec: p.spec||'', qty: inputQty, qtyUnit: unitMode==='pcs'?'개':p.unit, person, semester, note: noteAuto });
-  save(); renderIOSelect(); renderIO();
+  const newH = { date: fmt(new Date()), type: currentIO, product: p.name, model: p.model||'', spec: p.spec||'', qty: inputQty, qtyUnit: unitMode==='pcs'?'개':p.unit, person, semester, note: noteAuto };
+  history.push(newH);
+  localStorage.setItem('edu-products', JSON.stringify(products));
+  localStorage.setItem('edu-history', JSON.stringify(history));
+  dbUpdateProduct(p).catch(e => console.warn('Supabase qty error:', e));
+  dbAddHistory(newH).catch(e => console.warn('Supabase history error:', e));
+  renderIOSelect(); renderIO();
   document.getElementById('io-qty').value = 1;
   document.getElementById('io-semester').value = '';
   document.getElementById('io-person').value = '';
@@ -2369,18 +2420,24 @@ function renderBulkList() {
 function submitBulkOut() {
   if (!bulkList.length) { toast('❌ 출고 목록이 비어있습니다'); return; }
   let ok = 0, fail = 0;
+  const prevLen = history.length;
+  const updatedPis = [];
   bulkList.forEach(b => {
     const p = products[b.pi];
     if (p.qty < b.qty) { fail++; return; }
     p.qty = Math.round((p.qty - b.qty) * 1000) / 1000;
     history.push({ date: fmt(new Date()), type: 'out', product: p.name, model: p.model||'', spec: p.spec||'', qty: b.qty, qtyUnit: p.unit, person: b.person||'미입력', note: b.note });
+    updatedPis.push(b.pi);
     ok++;
   });
-  save();
-  bulkList = bulkList.filter((b, i) => {
-    const p = products[b.pi];
-    return false;
-  });
+  localStorage.setItem('edu-products', JSON.stringify(products));
+  localStorage.setItem('edu-history', JSON.stringify(history));
+  const newItems = history.slice(prevLen);
+  const updatedProds = updatedPis.map(pi => products[pi]);
+  Promise.all([
+    ...updatedProds.map(p => dbUpdateProduct(p)),
+    dbAddHistoryBulk(newItems)
+  ]).catch(e => console.warn('Supabase bulk error:', e));
   bulkList = [];
   renderBulkList();
   toast(fail ? `✅ ${ok}건 처리 완료 (${fail}건 재고 부족)` : `✅ ${ok}건 일괄 출고 완료`);
@@ -2635,6 +2692,38 @@ async function exportEdufineAll() {
   toast(`✅ ${fileCount}개 파일이 ZIP으로 다운로드됩니다`);
 }
 
+
+function confirmUpload() {
+  let successCount = 0;
+  const prevLen = history.length;
+  const updatedPis = [];
+  uploadRows.forEach(r => {
+    const pi = products.findIndex(p => p.name === r.product);
+    if (pi < 0) return;
+    if (r.type === 'out' && products[pi].qty < r.qty) return;
+    if (r.type === 'in') products[pi].qty += r.qty;
+    else products[pi].qty -= r.qty;
+    history.push({ date: fmt(new Date()), type: r.type, product: r.product,
+      model: products[pi].model||'', spec: products[pi].spec||'',
+      qty: r.qty, qtyUnit: products[pi].unit, person: r.person, semester: '', note: r.note });
+    updatedPis.push(pi);
+    successCount++;
+  });
+  localStorage.setItem('edu-products', JSON.stringify(products));
+  localStorage.setItem('edu-history', JSON.stringify(history));
+  const newItems = history.slice(prevLen);
+  const uniquePis = [...new Set(updatedPis)];
+  Promise.all([
+    ...uniquePis.map(pi => dbUpdateProduct(products[pi])),
+    dbAddHistoryBulk(newItems)
+  ]).catch(e => console.warn('Supabase upload error:', e));
+  closeModal('bulk-upload');
+  resetUpload();
+  renderIO();
+  renderDashboard();
+  toast('✅ ' + successCount + '건 일괄 등록 완료');
+}
+
 // ========== 연간 장부 PDF ==========
 function exportYearlyPDF() {
   const yearSel = document.getElementById('io-filter-year');
@@ -2759,7 +2848,10 @@ function carryOverStock() {
     }
   });
   saveLog('연도이월', `${year}년→${nextYear}년`, `${products.filter(p=>p.qty>0).length}종 이월`);
-  save();
+  localStorage.setItem('edu-products', JSON.stringify(products));
+  localStorage.setItem('edu-history', JSON.stringify(history));
+  const carryItems = history.filter(h => h.person === '연도이월' && h.date.startsWith(carryDate));
+  dbAddHistoryBulk(carryItems).catch(e => console.warn('Supabase carry error:', e));
 
   // 연도 필터 초기화 (새 연도 반영)
   const yearSel = document.getElementById('io-filter-year');
@@ -2768,6 +2860,27 @@ function carryOverStock() {
   }
   renderIO();
   toast(`✅ ${year}년 → ${nextYear}년 재고 이월 완료`);
+}
+
+
+// ========== 실사 임시 데이터 Supabase 저장 ==========
+async function dbSaveAuditData(data) {
+  await sbFetch('inventory_logs?action=eq.audit_temp', 'DELETE');
+  if (Object.keys(data).length === 0) return;
+  await sbFetch('inventory_logs', 'POST', [{
+    date: fmt(new Date()),
+    action: 'audit_temp',
+    name: 'audit_in_progress',
+    detail: JSON.stringify(data)
+  }]);
+}
+
+async function dbLoadAuditData() {
+  const rows = await sbFetch('inventory_logs?action=eq.audit_temp&order=created_at.desc&limit=1');
+  if (rows && rows.length > 0) {
+    try { return JSON.parse(rows[0].detail); } catch(e) { return {}; }
+  }
+  return {};
 }
 
 // ========== 정기 실사 ==========
@@ -2863,6 +2976,7 @@ function updateAuditRow(input, pi) {
 
 function saveAuditData() {
   localStorage.setItem('edu-audit-data', JSON.stringify(auditData));
+  dbSaveAuditData(auditData).catch(e => console.warn('Supabase audit temp:', e));
 }
 
 function updateAuditSummary() {
@@ -2928,9 +3042,16 @@ function applyAudit() {
   });
   localStorage.setItem('edu-audit-history', JSON.stringify(auditHistoryLog));
 
-  save();
+  localStorage.setItem('edu-products', JSON.stringify(products));
+  localStorage.setItem('edu-history', JSON.stringify(history));
+  const auditNewHistory = history.slice(-(diffs.length));
+  Promise.all([
+    dbSaveProducts(products),
+    dbAddHistoryBulk(auditNewHistory)
+  ]).catch(e => console.warn('Supabase audit error:', e));
   auditData = {};
   localStorage.removeItem('edu-audit-data');
+  sbFetch('inventory_logs?action=eq.audit_temp', 'DELETE').catch(e => console.warn(e));
   renderAudit();
   renderDashboard();
   toast(`✅ ${diffs.length}건 실사 조정 완료`);
@@ -2955,6 +3076,7 @@ function renderAuditHistory() {
 function clearAuditTemp() {
   auditData = {};
   localStorage.removeItem('edu-audit-data');
+  sbFetch('inventory_logs?action=eq.audit_temp', 'DELETE').catch(e => console.warn(e));
   const tip = document.getElementById('audit-restore-tip');
   if (tip) tip.style.display = 'none';
   renderAudit();
@@ -3067,14 +3189,16 @@ async function initApp() {
     ]);
 
     if (sbProducts && sbProducts.length > 0) {
+      // Supabase 데이터 사용 (공유 DB 우선)
       products = sbProducts.map(sbToProduct);
       history = sbHistory.map(sbToHistory);
       actionLog = sbLogs.map(sbToLog);
       localStorage.setItem('edu-products', JSON.stringify(products));
       localStorage.setItem('edu-history', JSON.stringify(history));
       localStorage.setItem('edu-log', JSON.stringify(actionLog));
-      console.log('✅ Supabase 로드:', products.length, '종');
+      console.log('✅ Supabase 로드:', products.length, '종', history.length, '건');
     } else if (products.length > 0) {
+      // Supabase 비어있고 localStorage에 데이터 있으면 업로드
       console.log('📤 localStorage → Supabase 초기 업로드...');
       await dbSaveProducts(products);
       if (history.length) await dbAddHistoryBulk(history);
@@ -3083,6 +3207,16 @@ async function initApp() {
   } catch(e) {
     console.warn('Supabase 연결 실패, localStorage 사용:', e);
   }
+
+  // 실사 진행 중 데이터 복원
+  try {
+    const sbAudit = await dbLoadAuditData();
+    if (sbAudit && Object.keys(sbAudit).length > 0) {
+      auditData = sbAudit;
+      localStorage.setItem('edu-audit-data', JSON.stringify(auditData));
+      console.log('✅ 실사 데이터 복원:', Object.keys(sbAudit).length, '항목');
+    }
+  } catch(e) { console.warn('실사 데이터 로드 실패:', e); }
 
   // 히스토리 model·spec 보완
   history = history.map(h => {
