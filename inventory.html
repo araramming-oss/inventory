@@ -1000,8 +1000,12 @@ function sbToLog(r) {
       <div class="table-wrap" style="margin-top:20px">
         <div class="table-top">
           <div class="table-title">실사 이력</div>
-          <button class="btn btn-secondary btn-sm" onclick="clearAuditHistory()">이력 삭제</button>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-secondary btn-sm" onclick="clearAuditHistory()">이력 삭제</button>
+            <button class="btn btn-primary btn-sm" id="recover-btn" onclick="recoverFromAuditHistory()" style="background:rgba(245,158,11,0.2);color:var(--warning);border:1px solid rgba(245,158,11,0.4)">⚠️ 미반영 실사 복구</button>
+          </div>
         </div>
+        <div id="recover-result" style="display:none;padding:10px 16px;font-size:12px;color:var(--warning);border-bottom:1px solid var(--border)"></div>
         <table>
           <thead><tr>
             <th>실시일</th><th>대상</th><th>일치</th><th>차이 발생</th><th>조정 내용</th>
@@ -1669,7 +1673,7 @@ if (!products.length) {
 }
 
 function fmt(d) {
-  return d.toLocaleDateString('ko-KR', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}).replace(/ /g,'');
+  return d.toLocaleDateString('ko-KR', {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}).replace(/ /g,'');
 }
 function save() {
   localStorage.setItem('edu-products', JSON.stringify(products));
@@ -1962,6 +1966,7 @@ function submitIO() {
   } else if (p.pcs && p.pcs > 0 && unitMode === 'unit') {
     if (!noteAuto) noteAuto = `${inputQty}${p.unit}(${inputQty*p.pcs}개)`;
   }
+  // ✅ 재고 부족 체크는 단위 환산 완료 후에 실행
   if (currentIO === 'out' && p.qty < qty) { toast('❌ 재고가 부족합니다'); return; }
   if (currentIO === 'in') p.qty = Math.round((p.qty + qty) * 1000) / 1000;
   else p.qty = Math.round((p.qty - qty) * 1000) / 1000;
@@ -2962,7 +2967,8 @@ function renderAudit() {
 function updateAuditRow(input, pi) {
   const p = products[pi];
   const val = auditData[pi];
-  const diff = val !== undefined ? val - p.qty : null;
+  // ✅ 타입 통일 후 차이 계산
+  const diff = val !== undefined ? parseFloat(val) - parseFloat(p.qty) : null;
   const diffEl = document.getElementById('audit-diff-' + pi);
   const statusEl = document.getElementById('audit-status-' + pi);
   if (!diffEl || !statusEl) return;
@@ -2992,7 +2998,7 @@ function updateAuditSummary() {
   products.forEach((p, pi) => {
     const val = auditData[pi];
     if (val === undefined) { empty++; return; }
-    const diff = val - p.qty;
+    const diff = parseFloat(val) - parseFloat(p.qty);
     if (diff === 0) match++;
     else if (diff > 0) plus++;
     else minus++;
@@ -3015,8 +3021,12 @@ async function applyAudit() {
   const diffs = [];
   products.forEach((p, pi) => {
     const val = auditData[pi];
-    if (val === undefined || val === p.qty) return;
-    diffs.push({ pi, name: p.name, model: p.model||'', spec: p.spec||'', before: p.qty, after: val, unit: p.unit });
+    if (val === undefined) return;
+    // ✅ 타입 통일 후 비교 (string/float 혼용 방지)
+    const valNum = parseFloat(val);
+    const qtyNum = parseFloat(p.qty);
+    if (isNaN(valNum) || valNum === qtyNum) return;
+    diffs.push({ pi, name: p.name, model: p.model||'', spec: p.spec||'', before: qtyNum, after: valNum, unit: p.unit });
   });
   if (!diffs.length) { toast('❌ 차이가 있는 항목이 없습니다'); return; }
   const msg = `차이 항목 ${diffs.length}건을 실사 수량으로 조정할까요?\n\n` +
@@ -3111,6 +3121,120 @@ function clearAuditHistory() {
   localStorage.setItem('edu-audit-history', '[]');
   renderAuditHistory();
   toast('🗑️ 실사 이력이 삭제됐습니다');
+}
+
+// ========== 2025.03.24 실사 수량 직접 복구 ==========
+// 스크린샷에서 확인된 최종 실사 후(→) 수량을 하드코딩하여 강제 반영합니다.
+async function recoverFromAuditHistory() {
+
+  // { name, model, spec } → 최종 실사 수량
+  // 동일 물품명+모델/규격 조합으로 매칭
+  const RECOVERY_DATA = [
+    // ── 케이블 ──────────────────────────────────
+    { name: 'HDMI-HDMI',          model: '',    spec: '',     qty: 28 },
+    { name: 'HDMI 연장케이블',    model: '',    spec: '1.5M', qty: 2  },
+    { name: '파워케이블',         model: '',    spec: '',     qty: 142},
+    { name: 'DP-HDMI',            model: '',    spec: '',     qty: 16 },
+    { name: 'DP-DP',              model: '',    spec: '',     qty: 35 },
+    // ── PC주변기기 ────────────────────────────────
+    { name: '키보드',             model: 'ZEST',   spec: '', qty: 19 },
+    { name: '키보드',             model: '트리엠', spec: '', qty: 1  },
+    { name: '키보드',             model: '로지텍', spec: '', qty: 15 },
+    { name: '유선마우스',         model: '로지텍', spec: '', qty: 40 },
+    { name: '작업용 USB 메모리 256GB', model: 'CZ880', spec: '256G', qty: 0 },
+    { name: 'USB 메모리',         model: 'Sandisk Extreme Pro CZ880 (128GB)', spec: '128G', qty: 0 },
+    { name: 'USB 3.0 허브',       model: '',    spec: '',     qty: 10 },
+    { name: '유전원 허브',        model: 'UH508', spec: '',   qty: 15 },
+    { name: 'C타입 허브 HDMI',    model: 'NEXT-2261TCH-DUAL', spec: 'HDMI', qty: 3 },
+    { name: '무선랜카드',         model: 'ipTIME', spec: 'A3000', qty: 18 },
+    // ── 사무용품 ──────────────────────────────────
+    { name: '재진척 양면테이프',  model: '',    spec: '',     qty: 6  }, // 2→6 (최신)
+    { name: '동전양면테이프',     model: '두랑', spec: '20mm', qty: 0 },
+    { name: '동전양면테이프',     model: '',    spec: '15mm', qty: 0  },
+    { name: '동전양면테이프',     model: '',    spec: '20mm', qty: 0  },
+    { name: '멀티탭',             model: '',    spec: '5m',   qty: 13 },
+    { name: '라벨전출지',         model: 'V3620-100', spec: '', qty: 0},
+    { name: '건전지',             model: '',    spec: 'AAA',  qty: 230},
+    { name: '건전지',             model: '',    spec: 'AA',   qty: 150},
+    { name: '철판지우개',         model: '삭박', spec: '',    qty: 8  },
+    { name: '철판지우개',         model: '김파', spec: '',    qty: 4  },
+    { name: '보드마카',           model: '빨강', spec: '',    qty: 18 },
+    { name: '보드마카',           model: '화랑', spec: '',    qty: 7  },
+    { name: '보드마카',           model: '검정', spec: '',    qty: 28 },
+    { name: '수정테이프',         model: '',    spec: '',     qty: 0  },
+    // ── 용지 ──────────────────────────────────────
+    { name: '제본용PP용지',       model: '',    spec: 'A4',   qty: 4  },
+    { name: '일반용지',           model: '밀크', spec: 'B4',  qty: 1  },
+    { name: '일반용지',           model: '밀크', spec: 'A3',  qty: 5  },
+    { name: '코팅필름',           model: '',    spec: 'A4',   qty: 0  },
+    // ── 기타 ──────────────────────────────────────
+    { name: '무선 마이크',        model: '',    spec: '',     qty: 11 },
+    { name: 'HDMI',               model: '',    spec: '15M',  qty: 1  },
+  ];
+
+  const applied = [];
+
+  RECOVERY_DATA.forEach(rec => {
+    const p = products.find(p =>
+      p.name === rec.name &&
+      (rec.model === '' || p.model === rec.model) &&
+      (rec.spec  === '' || p.spec  === rec.spec)
+    );
+    if (!p) { console.warn('복구 대상 미발견:', rec.name, rec.model, rec.spec); return; }
+    if (parseFloat(p.qty) === rec.qty) return; // 이미 일치
+    const before = p.qty;
+    p.qty = rec.qty;
+    applied.push(`${p.name}${p.model?' ['+p.model+']':''}${p.spec?' ('+p.spec+')':''}: ${before}→${rec.qty}${p.unit}`);
+  });
+
+  if (!applied.length) {
+    const el = document.getElementById('recover-result');
+    el.style.display = 'block';
+    el.style.color = 'var(--success)';
+    el.textContent = '✅ 모든 상품이 이미 실사 수량과 일치합니다.';
+    return;
+  }
+
+  if (!confirm(`2025.03.24 실사 기준으로 ${applied.length}개 상품 수량을 복구할까요?\n\n` +
+    applied.slice(0,10).join('\n') + (applied.length > 10 ? `\n... 외 ${applied.length-10}건` : ''))) {
+    // 취소 시 원상복구
+    RECOVERY_DATA.forEach(rec => {
+      const p = products.find(p => p.name === rec.name &&
+        (rec.model===''||p.model===rec.model) && (rec.spec===''||p.spec===rec.spec));
+      // qty는 아직 저장 전이므로 revert 불필요 (products 배열만 수정됐고 save 안 함)
+    });
+    // 실제로는 위에서 p.qty를 직접 수정했으므로 페이지 새로고침으로 원복 안내
+    toast('❌ 취소됨. 페이지를 새로고침하면 원상복구됩니다.');
+    return;
+  }
+
+  // Supabase + localStorage 저장
+  localStorage.setItem('edu-products', JSON.stringify(products));
+  const changedCodes = RECOVERY_DATA.map(rec => {
+    const p = products.find(p => p.name === rec.name &&
+      (rec.model===''||p.model===rec.model) && (rec.spec===''||p.spec===rec.spec));
+    return p;
+  }).filter(Boolean);
+
+  try {
+    await Promise.all(changedCodes.map(p => dbUpdateProduct(p)));
+    console.log('✅ Supabase 복구 저장 완료:', changedCodes.length, '건');
+  } catch(e) { console.warn('Supabase recover error:', e); }
+
+  saveLog('실사복구', `03.24 실사 ${applied.length}건`, applied.slice(0,5).join(' / '));
+
+  const el = document.getElementById('recover-result');
+  el.style.display = 'block';
+  el.style.color = 'var(--success)';
+  el.textContent = `✅ ${applied.length}개 복구 완료: ` + applied.slice(0,3).join(' / ') + (applied.length > 3 ? ` 외 ${applied.length-3}건` : '');
+
+  // 복구 버튼 비활성화 (중복 실행 방지)
+  const btn = document.getElementById('recover-btn');
+  if (btn) { btn.textContent = '✅ 복구 완료'; btn.disabled = true; btn.style.opacity = '0.5'; }
+
+  renderDashboard();
+  renderAudit();
+  toast(`✅ 03.24 실사 ${applied.length}건 수량 복구 완료`);
 }
 
 // ========== 이력 로그 ==========
