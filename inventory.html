@@ -1223,7 +1223,7 @@ function sbToLog(r) {
 
 <script>
 // ========== STATE ==========
-const DATA_VERSION = 'v53-upsert-single';
+const DATA_VERSION = 'v54-no-recalc';
 if (localStorage.getItem('edu-version') !== DATA_VERSION) {
   // 버전이 바뀌어도 기존 데이터는 유지 — 버전 번호만 업데이트
   localStorage.setItem('edu-version', DATA_VERSION);
@@ -3213,30 +3213,6 @@ async function initApp() {
       products = sbProducts.map(sbToProduct);
       history = sbHistory.map(sbToHistory);
       actionLog = sbLogs.map(sbToLog);
-
-      // 입출고 내역 기반으로 qty 재계산 (Supabase qty가 오래된 경우 보정)
-      const calcQty = {};
-      products.forEach(p => { calcQty[p.code] = 0; });
-      history.forEach(h => {
-        const p = products.find(p => p.name === h.product);
-        if (!p) return;
-        if (h.type === 'in') calcQty[p.code] = (calcQty[p.code]||0) + h.qty;
-        else calcQty[p.code] = (calcQty[p.code]||0) - h.qty;
-      });
-      // 재계산 값이 Supabase qty와 다르면 재계산 값으로 덮어쓰기
-      let fixCount = 0;
-      products.forEach(p => {
-        const calc = Math.round((calcQty[p.code]||0) * 1000) / 1000;
-        if (calc !== p.qty) {
-          console.log(`qty 보정: ${p.name} ${p.qty} → ${calc}`);
-          p.qty = calc;
-          fixCount++;
-        }
-      });
-      if (fixCount > 0) {
-        console.log(`✅ qty 보정 ${fixCount}종 — Supabase에 반영 중...`);
-        dbSaveProducts(products).catch(e => console.warn('qty 보정 저장 실패:', e));
-      }
 
       localStorage.setItem('edu-products', JSON.stringify(products));
       localStorage.setItem('edu-history', JSON.stringify(history));
