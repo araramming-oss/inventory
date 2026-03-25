@@ -511,15 +511,16 @@ async function dbUpdateProduct(p) {
     cat: p.cat, loc: p.loc||'', unit: p.unit,
     safe: p.safe||0, pcs: p.pcs||0, qty: p.qty||0, price: p.price||0
   };
-  const res = await fetch(SUPA_URL + '/rest/v1/inventory_products?code=eq.' + encodeURIComponent(p.code), {
-    method: 'PATCH',
+  // upsert 방식으로 단일 상품 저장 (code unique 기준)
+  const res = await fetch(SUPA_URL + '/rest/v1/inventory_products?on_conflict=code', {
+    method: 'POST',
     headers: {
       'apikey': SUPA_KEY,
       'Authorization': 'Bearer ' + SUPA_KEY,
       'Content-Type': 'application/json',
-      'Prefer': 'return=minimal'
+      'Prefer': 'resolution=merge-duplicates,return=minimal'
     },
-    body: JSON.stringify(row)
+    body: JSON.stringify([row])
   });
   if (!res.ok) {
     const err = await res.text();
@@ -1222,7 +1223,7 @@ function sbToLog(r) {
 
 <script>
 // ========== STATE ==========
-const DATA_VERSION = 'v51-audit-fix';
+const DATA_VERSION = 'v53-upsert-single';
 if (localStorage.getItem('edu-version') !== DATA_VERSION) {
   // 버전이 바뀌어도 기존 데이터는 유지 — 버전 번호만 업데이트
   localStorage.setItem('edu-version', DATA_VERSION);
@@ -3212,6 +3213,31 @@ async function initApp() {
       products = sbProducts.map(sbToProduct);
       history = sbHistory.map(sbToHistory);
       actionLog = sbLogs.map(sbToLog);
+
+      // 입출고 내역 기반으로 qty 재계산 (Supabase qty가 오래된 경우 보정)
+      const calcQty = {};
+      products.forEach(p => { calcQty[p.code] = 0; });
+      history.forEach(h => {
+        const p = products.find(p => p.name === h.product);
+        if (!p) return;
+        if (h.type === 'in') calcQty[p.code] = (calcQty[p.code]||0) + h.qty;
+        else calcQty[p.code] = (calcQty[p.code]||0) - h.qty;
+      });
+      // 재계산 값이 Supabase qty와 다르면 재계산 값으로 덮어쓰기
+      let fixCount = 0;
+      products.forEach(p => {
+        const calc = Math.round((calcQty[p.code]||0) * 1000) / 1000;
+        if (calc !== p.qty) {
+          console.log(`qty 보정: ${p.name} ${p.qty} → ${calc}`);
+          p.qty = calc;
+          fixCount++;
+        }
+      });
+      if (fixCount > 0) {
+        console.log(`✅ qty 보정 ${fixCount}종 — Supabase에 반영 중...`);
+        dbSaveProducts(products).catch(e => console.warn('qty 보정 저장 실패:', e));
+      }
+
       localStorage.setItem('edu-products', JSON.stringify(products));
       localStorage.setItem('edu-history', JSON.stringify(history));
       localStorage.setItem('edu-log', JSON.stringify(actionLog));
