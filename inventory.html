@@ -449,7 +449,7 @@ const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsI
 const SUPA_ENABLED = true;
 
 // supabase-js 클라이언트 (기기대여 프로그램과 동일한 방식)
-const supabase = window.supabase.createClient(SUPA_URL, SUPA_KEY);
+const sbClient = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
 async function sbFetch(path, method='GET', body=null) {
   if (!SUPA_ENABLED) return null;
@@ -471,22 +471,22 @@ async function sbFetch(path, method='GET', body=null) {
 
 // 전체 상품 불러오기
 async function dbLoadProducts() {
-  const { data, error } = await supabase.from('inventory_products').select('*').order('code').limit(1000);
-  if (error) { console.error('dbLoadProducts error:', error); return []; }
+  const { data, error } = await sbClient.from('inventory_products').select('*').order('code').limit(1000);
+  if (error) { console.error('dbLoadProducts error:', JSON.stringify(error)); return []; }
   return data || [];
 }
 
 // 전체 히스토리 불러오기
 async function dbLoadHistory() {
-  const { data, error } = await supabase.from('inventory_history').select('*').order('created_at').limit(5000);
-  if (error) { console.error('dbLoadHistory error:', error); return []; }
+  const { data, error } = await sbClient.from('inventory_history').select('*').order('created_at').limit(5000);
+  if (error) { console.error('dbLoadHistory error:', JSON.stringify(error)); return []; }
   return data || [];
 }
 
 // 전체 로그 불러오기
 async function dbLoadLogs() {
-  const { data, error } = await supabase.from('inventory_logs').select('*').order('created_at', {ascending: false}).limit(500);
-  if (error) { console.error('dbLoadLogs error:', error); return []; }
+  const { data, error } = await sbClient.from('inventory_logs').select('*').order('created_at', {ascending: false}).limit(500);
+  if (error) { console.error('dbLoadLogs error:', JSON.stringify(error)); return []; }
   return data || [];
 }
 
@@ -499,8 +499,8 @@ async function dbSaveProducts(prods) {
     safe: p.safe||0, pcs: p.pcs||0, qty: p.qty||0, price: p.price||0
   }));
   if (!rows.length) return;
-  const { error } = await supabase.from('inventory_products').upsert(rows, { onConflict: 'code' });
-  if (error) console.error('dbSaveProducts error:', error);
+  const { error } = await sbClient.from('inventory_products').upsert(rows, { onConflict: 'code' });
+  if (error) console.error('dbSaveProducts error:', JSON.stringify(error));
 }
 
 // 상품 1개만 업데이트 (안전재고, 수량 등 개별 수정 시)
@@ -511,27 +511,27 @@ async function dbUpdateProduct(p) {
     cat: p.cat, loc: p.loc||'', unit: p.unit,
     safe: p.safe||0, pcs: p.pcs||0, qty: p.qty||0, price: p.price||0
   };
-  const { error } = await supabase.from('inventory_products').upsert([row], { onConflict: 'code' });
-  if (error) { console.error('dbUpdateProduct error:', error); throw error; }
+  const { error } = await sbClient.from('inventory_products').upsert([row], { onConflict: 'code' });
+  if (error) { console.error('dbUpdateProduct error:', JSON.stringify(error)); throw error; }
 }
 
 // 상품 1개 삭제
 async function dbDeleteProduct(code) {
   if (!SUPA_ENABLED) return;
-  const { error } = await supabase.from('inventory_products').delete().eq('code', code);
-  if (error) console.error('dbDeleteProduct error:', error);
+  const { error } = await sbClient.from('inventory_products').delete().eq('code', code);
+  if (error) console.error('dbDeleteProduct error:', JSON.stringify(error));
 }
 
 // 히스토리 1건 추가
 async function dbAddHistory(h) {
   if (!SUPA_ENABLED) return;
-  const { error } = await supabase.from('inventory_history').insert([{
+  const { error } = await sbClient.from('inventory_history').insert([{
     date: h.date, type: h.type, product: h.product,
     model: h.model||'', spec: h.spec||'', qty: h.qty,
     qty_unit: h.qtyUnit||'', person: h.person||'',
     semester: h.semester||'', note: h.note||''
   }]);
-  if (error) console.error('dbAddHistory error:', error);
+  if (error) console.error('dbAddHistory error:', JSON.stringify(error));
 }
 
 // 히스토리 여러건 추가
@@ -543,17 +543,17 @@ async function dbAddHistoryBulk(list) {
     qty_unit: h.qtyUnit||'', person: h.person||'',
     semester: h.semester||'', note: h.note||''
   }));
-  const { error } = await supabase.from('inventory_history').insert(rows);
-  if (error) console.error('dbAddHistoryBulk error:', error);
+  const { error } = await sbClient.from('inventory_history').insert(rows);
+  if (error) console.error('dbAddHistoryBulk error:', JSON.stringify(error));
 }
 
 // 로그 추가
 async function dbAddLog(l) {
   if (!SUPA_ENABLED) return;
-  const { error } = await supabase.from('inventory_logs').insert([{
+  const { error } = await sbClient.from('inventory_logs').insert([{
     date: l.date, action: l.action, name: l.name, detail: l.detail
   }]);
-  if (error) console.error('dbAddLog error:', error);
+  if (error) console.error('dbAddLog error:', JSON.stringify(error));
 }
 
 // Supabase → 로컬 형식 변환
@@ -1216,7 +1216,7 @@ function sbToLog(r) {
 
 <script>
 // ========== STATE ==========
-const DATA_VERSION = 'v65-data-restore';
+const DATA_VERSION = 'v65-sbclient';
 if (localStorage.getItem('edu-version') !== DATA_VERSION) {
   // 버전이 바뀌어도 기존 데이터는 유지 — 버전 번호만 업데이트
   localStorage.setItem('edu-version', DATA_VERSION);
@@ -2867,9 +2867,9 @@ function carryOverStock() {
 // ========== 실사 임시 데이터 Supabase 저장 ==========
 async function dbSaveAuditData(data) {
   if (!SUPA_ENABLED) return;
-  await supabase.from('inventory_logs').delete().eq('action', 'audit_temp');
+  await sbClient.from('inventory_logs').delete().eq('action', 'audit_temp');
   if (Object.keys(data).length === 0) return;
-  await supabase.from('inventory_logs').insert([{
+  await sbClient.from('inventory_logs').insert([{
     date: fmt(new Date()), action: 'audit_temp',
     name: 'audit_in_progress', detail: JSON.stringify(data)
   }]);
@@ -2877,7 +2877,7 @@ async function dbSaveAuditData(data) {
 
 async function dbLoadAuditData() {
   if (!SUPA_ENABLED) return {};
-  const { data } = await supabase.from('inventory_logs').select('*').eq('action', 'audit_temp').order('created_at', {ascending: false}).limit(1);
+  const { data } = await sbClient.from('inventory_logs').select('*').eq('action', 'audit_temp').order('created_at', {ascending: false}).limit(1);
   if (data && data.length > 0) {
     try { return JSON.parse(data[0].detail); } catch(e) { return {}; }
   }
@@ -3061,7 +3061,7 @@ async function applyAudit() {
 
   auditData = {};
   localStorage.removeItem('edu-audit-data');
-  supabase.from('inventory_logs').delete().eq('action', 'audit_temp').then().catch(e => console.warn(e));
+  sbClient.from('inventory_logs').delete().eq('action', 'audit_temp').then().catch(e => console.warn(e));
   renderAudit();
   renderDashboard();
   toast(`✅ ${diffs.length}건 실사 조정 완료`);
@@ -3086,7 +3086,7 @@ function renderAuditHistory() {
 function clearAuditTemp() {
   auditData = {};
   localStorage.removeItem('edu-audit-data');
-  supabase.from('inventory_logs').delete().eq('action', 'audit_temp').then().catch(e => console.warn(e));
+  sbClient.from('inventory_logs').delete().eq('action', 'audit_temp').then().catch(e => console.warn(e));
   const tip = document.getElementById('audit-restore-tip');
   if (tip) tip.style.display = 'none';
   renderAudit();
