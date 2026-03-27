@@ -1219,7 +1219,7 @@ function sbToLog(r) {
 
 <script>
 // ========== STATE ==========
-const DATA_VERSION = 'v67-io-delete-qty';
+const DATA_VERSION = 'v68-delete-fix';
 if (localStorage.getItem('edu-version') !== DATA_VERSION) {
   // 버전이 바뀌어도 기존 데이터는 유지 — 버전 번호만 업데이트
   localStorage.setItem('edu-version', DATA_VERSION);
@@ -2778,12 +2778,13 @@ async function deleteSelectedIO() {
 
   // Supabase 저장
   for (const h of toDelete) {
-    await sbClient.from('inventory_history')
-      .delete()
-      .eq('date', h.date)
-      .eq('product', h.product)
-      .eq('qty', h.qty)
-      .catch(e => console.warn('Supabase 삭제 실패:', e));
+    try {
+      await sbClient.from('inventory_history')
+        .delete()
+        .eq('date', h.date)
+        .eq('product', h.product)
+        .eq('qty', h.qty);
+    } catch(e) { console.warn('Supabase 삭제 실패:', e); }
   }
   for (const p of updatedProducts) {
     await dbUpdateProduct(p).catch(e => console.warn('Supabase qty 복구 실패:', e));
