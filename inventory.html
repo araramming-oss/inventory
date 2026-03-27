@@ -765,7 +765,10 @@ function sbToLog(r) {
       </div>
       <div class="table-wrap" id="io-history-wrap">
         <div class="table-top" style="flex-wrap:wrap;gap:8px">
-          <div class="table-title">전체 입출고 내역 <span id="io-count" style="font-size:11px;color:var(--text3);font-family:monospace;margin-left:6px"></span></div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div class="table-title">전체 입출고 내역 <span id="io-count" style="font-size:11px;color:var(--text3);font-family:monospace;margin-left:6px"></span></div>
+            <button class="btn btn-danger btn-sm" id="io-delete-btn" onclick="deleteSelectedIO()" style="display:none">🗑️ 선택 삭제 (<span id="io-selected-count">0</span>건)</button>
+          </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
             <select class="form-select" id="io-filter-year" onchange="renderIO()" style="width:90px;padding:5px 8px;font-size:12px">
               <option value="">전체 연도</option>
@@ -791,7 +794,7 @@ function sbToLog(r) {
         </div>
         <table id="io-print-table">
           <thead><tr>
-            <th>일시</th><th>구분</th><th>학기</th><th>물품명</th><th>수량</th><th>단위</th><th>규격</th><th>수령인</th><th>비고</th>
+            <th><input type="checkbox" id="io-check-all" onclick="toggleAllIOCheck(this)" style="cursor:pointer"></th><th>일시</th><th>구분</th><th>학기</th><th>물품명</th><th>수량</th><th>단위</th><th>규격</th><th>수령인</th><th>비고</th>
           </tr></thead>
           <tbody id="io-table"></tbody>
         </table>
@@ -1216,7 +1219,7 @@ function sbToLog(r) {
 
 <script>
 // ========== STATE ==========
-const DATA_VERSION = 'v65-sbclient';
+const DATA_VERSION = 'v67-io-delete-qty';
 if (localStorage.getItem('edu-version') !== DATA_VERSION) {
   // 버전이 바뀌어도 기존 데이터는 유지 — 버전 번호만 업데이트
   localStorage.setItem('edu-version', DATA_VERSION);
@@ -2022,7 +2025,10 @@ function renderIO() {
     const p = products.find(p=>p.name===h.product);
     const unit = h.qtyUnit || (p ? p.unit : '');
     const semBadge = h.semester ? `<span class="badge" style="background:rgba(34,197,94,0.15);color:var(--success);font-family:monospace">${h.semester}</span>` : '-';
+    const realIdx = [...history].reverse().indexOf(h);
+    const origIdx = history.length - 1 - realIdx;
     return `<tr>
+    <td><input type="checkbox" class="io-check" data-idx="${origIdx}" onchange="updateIODeleteBtn()" style="cursor:pointer"></td>
     <td style="font-family:monospace;font-size:12px;color:var(--text2)">${h.date}</td>
     <td><span class="badge ${h.type==='in'?'badge-blue':'badge-purple'}">${h.type==='in'?'📥 입고':'📤 출고'}</span></td>
     <td>${semBadge}</td>
@@ -2032,7 +2038,7 @@ function renderIO() {
     <td style="font-size:12px">${(()=>{const tag=h.note&&h.note.length<=10?h.note:([h.model,h.spec].filter(Boolean).join(' '));return tag?`<span style="background:rgba(79,142,247,0.15);color:var(--accent);border-radius:3px;padding:1px 6px;font-family:monospace;font-size:11px">${tag}</span>`:'-'})()}</td>
     <td style="color:var(--text2)">${h.person}</td>
     <td style="color:var(--text3);font-size:12px">${h.note&&h.note.length<=10?'-':h.note||'-'}</td>
-  </tr>`;}).join('') || '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:24px">내역 없음</td></tr>';
+  </tr>`;}).join('') || '<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:24px">내역 없음</td></tr>';
 }
 
 // ========== STOCK ==========
@@ -2723,6 +2729,73 @@ function confirmUpload() {
   renderIO();
   renderDashboard();
   toast('✅ ' + successCount + '건 일괄 등록 완료');
+}
+
+
+// ========== 입출고 내역 선택 삭제 ==========
+function toggleAllIOCheck(cb) {
+  document.querySelectorAll('.io-check').forEach(c => c.checked = cb.checked);
+  updateIODeleteBtn();
+}
+
+function updateIODeleteBtn() {
+  const checked = document.querySelectorAll('.io-check:checked');
+  const btn = document.getElementById('io-delete-btn');
+  const cnt = document.getElementById('io-selected-count');
+  if (btn) btn.style.display = checked.length > 0 ? 'flex' : 'none';
+  if (cnt) cnt.textContent = checked.length;
+}
+
+async function deleteSelectedIO() {
+  const checked = document.querySelectorAll('.io-check:checked');
+  if (!checked.length) return;
+  if (!confirm(`선택한 ${checked.length}건을 삭제할까요?\n삭제된 입출고 내역만큼 재고 수량도 자동으로 복구돼요.`)) return;
+
+  const idxs = [...checked].map(c => parseInt(c.dataset.idx)).sort((a,b) => b-a);
+  const toDelete = idxs.map(i => history[i]);
+
+  // 재고 수량 복구 — 입고 삭제 시 qty 감소, 출고 삭제 시 qty 증가
+  const updatedProducts = [];
+  toDelete.forEach(h => {
+    const p = products.find(p => p.name === h.product);
+    if (!p) return;
+    if (h.type === 'in') {
+      p.qty = Math.round((p.qty - h.qty) * 1000) / 1000;
+    } else {
+      p.qty = Math.round((p.qty + h.qty) * 1000) / 1000;
+    }
+    if (!updatedProducts.find(up => up.code === p.code)) {
+      updatedProducts.push(p);
+    }
+  });
+
+  // history에서 제거
+  idxs.forEach(i => history.splice(i, 1));
+
+  // localStorage 저장
+  localStorage.setItem('edu-products', JSON.stringify(products));
+  localStorage.setItem('edu-history', JSON.stringify(history));
+
+  // Supabase 저장
+  for (const h of toDelete) {
+    await sbClient.from('inventory_history')
+      .delete()
+      .eq('date', h.date)
+      .eq('product', h.product)
+      .eq('qty', h.qty)
+      .catch(e => console.warn('Supabase 삭제 실패:', e));
+  }
+  for (const p of updatedProducts) {
+    await dbUpdateProduct(p).catch(e => console.warn('Supabase qty 복구 실패:', e));
+  }
+
+  const allCb = document.getElementById('io-check-all');
+  if (allCb) allCb.checked = false;
+
+  renderIO();
+  renderDashboard();
+  renderStock();
+  toast(`🗑️ ${idxs.length}건 삭제 및 재고 수량 복구 완료`);
 }
 
 // ========== 연간 장부 PDF ==========
