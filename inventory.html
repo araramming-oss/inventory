@@ -150,6 +150,8 @@
   .btn-danger:hover { background: rgba(239,68,68,0.25); }
   .btn-sm { padding: 4px 10px; font-size: 12px; }
   table { width: 100%; border-collapse: collapse; }
+  td, th { white-space: nowrap; }
+  td.wrap, th.wrap { white-space: normal; }
   th {
     text-align: left; padding: 10px 14px;
     font-size: 11px; font-family: 'IBM Plex Mono', monospace;
@@ -1219,7 +1221,7 @@ function sbToLog(r) {
 
 <script>
 // ========== STATE ==========
-const DATA_VERSION = 'v68-delete-fix';
+const DATA_VERSION = 'v71-sticky-nav';
 if (localStorage.getItem('edu-version') !== DATA_VERSION) {
   // 버전이 바뀌어도 기존 데이터는 유지 — 버전 번호만 업데이트
   localStorage.setItem('edu-version', DATA_VERSION);
@@ -2030,14 +2032,14 @@ function renderIO() {
     return `<tr>
     <td><input type="checkbox" class="io-check" data-idx="${origIdx}" onchange="updateIODeleteBtn()" style="cursor:pointer"></td>
     <td style="font-family:monospace;font-size:12px;color:var(--text2)">${h.date}</td>
-    <td><span class="badge ${h.type==='in'?'badge-blue':'badge-purple'}">${h.type==='in'?'📥 입고':'📤 출고'}</span></td>
+    <td style="white-space:nowrap"><span class="badge ${h.type==='in'?'badge-blue':'badge-purple'}">${h.type==='in'?'📥 입고':'📤 출고'}</span></td>
     <td>${semBadge}</td>
     <td>${h.product}${(()=>{const tag=h.note&&h.note.length<=10?h.note:([h.model,h.spec].filter(Boolean).join(' '));return tag?`<span style="margin-left:5px;font-size:10px;background:rgba(79,142,247,0.15);color:var(--accent);border-radius:3px;padding:1px 6px;font-family:monospace">${tag}</span>`:''})()}</td>
     <td style="font-family:monospace">${h.qty}</td>
     <td style="color:var(--text2);font-size:12px">${unit}</td>
     <td style="font-size:12px">${(()=>{const tag=h.note&&h.note.length<=10?h.note:([h.model,h.spec].filter(Boolean).join(' '));return tag?`<span style="background:rgba(79,142,247,0.15);color:var(--accent);border-radius:3px;padding:1px 6px;font-family:monospace;font-size:11px">${tag}</span>`:'-'})()}</td>
-    <td style="color:var(--text2)">${h.person}</td>
-    <td style="color:var(--text3);font-size:12px">${h.note&&h.note.length<=10?'-':h.note||'-'}</td>
+    <td style="color:var(--text2);white-space:nowrap">${h.person}</td>
+    <td style="color:var(--text3);font-size:12px;white-space:nowrap">${h.note&&h.note.length<=10?'-':h.note||'-'}</td>
   </tr>`;}).join('') || '<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:24px">내역 없음</td></tr>';
 }
 
