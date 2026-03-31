@@ -26,7 +26,6 @@
     background: var(--bg);
     color: var(--text);
     height: 100vh;
-    overflow: hidden;
     display: flex;
     flex-direction: column;
   }
@@ -60,7 +59,7 @@
   }
 
   /* LAYOUT */
-  .app { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+  .app { display: flex; flex: 1; min-height: 0; overflow: hidden; height: calc(100vh - 56px); }
   nav {
     width: 200px; min-width: 200px;
     background: var(--surface);
@@ -1227,7 +1226,7 @@ function sbToLog(r) {
 
 <script>
 // ========== STATE ==========
-const DATA_VERSION = 'v72-sticky-nav2';
+const DATA_VERSION = 'v73-search-fix';
 if (localStorage.getItem('edu-version') !== DATA_VERSION) {
   // 버전이 바뀌어도 기존 데이터는 유지 — 버전 번호만 업데이트
   localStorage.setItem('edu-version', DATA_VERSION);
@@ -1747,7 +1746,7 @@ function renderProducts() {
   }
   const tb = document.getElementById('product-table');
   const list = products.filter(p =>
-    (!q || p.name.includes(q) || p.code.toLowerCase().includes(q) || (p.model||'').toLowerCase().includes(q)) &&
+    (!q || p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q) || (p.model||'').toLowerCase().includes(q)) &&
     (!catF || p.cat === catF)
   );
   tb.innerHTML = list.map((p,i) => {
@@ -2008,7 +2007,7 @@ function renderIO() {
 
   const tb = document.getElementById('io-table');
   let list = [...history].reverse().filter(h => {
-    if (q && !h.product.includes(q) && !(h.person||'').includes(q)) return false;
+    if (q && !h.product.toLowerCase().includes(q) && !(h.person||'').toLowerCase().includes(q)) return false;
     if (typeF && h.type !== typeF) return false;
     if (semF && (h.semester||'') !== semF) return false;
     if (yearF) {
@@ -2059,7 +2058,7 @@ function renderStock() {
   const CATS = ['용지','잉크','사무용품','케이블','PC주변기기','기타'];
   sel.innerHTML = '<option value="">전체 카테고리</option>' + CATS.map(c => `<option value="${c}" ${c===cur?'selected':''}>${c}</option>`).join('');
   const list = products.filter(p =>
-    (!q || p.name.includes(q)) && (!cat || p.cat === cat)
+    (!q || p.name.toLowerCase().includes(q) || (p.model||'').toLowerCase().includes(q) || (p.spec||'').toLowerCase().includes(q)) && (!cat || p.cat === cat)
   );
   const tb = document.getElementById('stock-table');
   tb.innerHTML = list.map(p => {
