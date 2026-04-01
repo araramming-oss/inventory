@@ -1232,7 +1232,7 @@ function sbToLog(r) {
 
 <script>
 // ========== STATE ==========
-const DATA_VERSION = 'v76-inactive-fix';
+const DATA_VERSION = 'v77-stock-fix';
 if (localStorage.getItem('edu-version') !== DATA_VERSION) {
   // 버전이 바뀌어도 기존 데이터는 유지 — 버전 번호만 업데이트
   localStorage.setItem('edu-version', DATA_VERSION);
@@ -1759,7 +1759,7 @@ function renderProducts() {
   );
   tb.innerHTML = list.map((p,i) => {
     const ri = products.indexOf(p);
-    return `<tr style="${p.inactive?'opacity:0.4':''}"
+    return `<tr style="${p.inactive?'opacity:0.4':''}">
       <td style="font-family:monospace;font-size:10px;color:var(--text3);max-width:60px;overflow:hidden;text-overflow:ellipsis">${p.code}</td>
       <td>${p.name}</td>
       <td style="color:var(--text2)">${p.model||'-'}</td>
@@ -2069,6 +2069,7 @@ function renderStock() {
   const CATS = ['용지','잉크','사무용품','케이블','PC주변기기','실험실습재료','기타'];
   sel.innerHTML = '<option value="">전체 카테고리</option>' + CATS.map(c => `<option value="${c}" ${c===cur?'selected':''}>${c}</option>`).join('');
   const list = products.filter(p =>
+    !p.inactive &&
     (!q || p.name.toLowerCase().includes(q) || (p.model||'').toLowerCase().includes(q) || (p.spec||'').toLowerCase().includes(q)) && (!cat || p.cat === cat)
   );
   const tb = document.getElementById('stock-table');
