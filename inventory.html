@@ -503,7 +503,8 @@ async function dbSaveProducts(prods) {
   const rows = prods.map(p => ({
     code: p.code, name: p.name, model: p.model||'', spec: p.spec||'',
     cat: p.cat, loc: p.loc||'', unit: p.unit,
-    safe: p.safe||0, pcs: p.pcs||0, qty: p.qty||0, price: p.price||0
+    safe: p.safe||0, pcs: p.pcs||0, qty: p.qty||0, price: p.price||0,
+    inactive: p.inactive === true
   }));
   if (!rows.length) return;
   const { error } = await sbClient.from('inventory_products').upsert(rows, { onConflict: 'code' });
@@ -516,7 +517,8 @@ async function dbUpdateProduct(p) {
   const row = {
     code: p.code, name: p.name, model: p.model||'', spec: p.spec||'',
     cat: p.cat, loc: p.loc||'', unit: p.unit,
-    safe: p.safe||0, pcs: p.pcs||0, qty: p.qty||0, price: p.price||0
+    safe: p.safe||0, pcs: p.pcs||0, qty: p.qty||0, price: p.price||0,
+    inactive: p.inactive === true
   };
   const { error } = await sbClient.from('inventory_products').upsert([row], { onConflict: 'code' });
   if (error) { console.error('dbUpdateProduct error:', JSON.stringify(error)); throw error; }
@@ -1230,7 +1232,7 @@ function sbToLog(r) {
 
 <script>
 // ========== STATE ==========
-const DATA_VERSION = 'v75-cat-fix';
+const DATA_VERSION = 'v76-inactive-fix';
 if (localStorage.getItem('edu-version') !== DATA_VERSION) {
   // 버전이 바뀌어도 기존 데이터는 유지 — 버전 번호만 업데이트
   localStorage.setItem('edu-version', DATA_VERSION);
@@ -1758,7 +1760,7 @@ function renderProducts() {
   tb.innerHTML = list.map((p,i) => {
     const ri = products.indexOf(p);
     return `<tr style="${p.inactive?'opacity:0.4':''}"
-      <td style="font-family:monospace;font-size:12px;color:var(--text2)">${p.code}</td>
+      <td style="font-family:monospace;font-size:10px;color:var(--text3);max-width:60px;overflow:hidden;text-overflow:ellipsis">${p.code}</td>
       <td>${p.name}</td>
       <td style="color:var(--text2)">${p.model||'-'}</td>
       <td style="color:var(--text2)">${p.spec||'-'}</td>
@@ -2077,7 +2079,7 @@ function renderStock() {
     else { status = '정상'; badge = 'badge-ok'; }
     const pcsInfo = p.pcs ? `<span style="color:var(--accent);font-size:11px;font-family:monospace">${Math.round(p.qty*p.pcs)}개</span>` : '<span style="color:var(--text3);font-size:11px">-</span>';
     return `<tr>
-      <td style="font-family:monospace;font-size:12px;color:var(--text2)">${p.code}</td>
+      <td style="font-family:monospace;font-size:10px;color:var(--text3);max-width:60px;overflow:hidden;text-overflow:ellipsis">${p.code}</td>
       <td>${p.name}</td>
       <td style="color:var(--text2);font-size:12px">${p.model||'-'}</td>
       <td style="color:var(--text2);font-size:12px">${p.spec||'-'}</td>
@@ -3299,7 +3301,7 @@ async function initApp() {
 
     if (sbProducts && sbProducts.length > 0) {
       // Supabase 데이터 사용 (공유 DB 우선)
-      products = sbProducts.map(sbToProduct);
+      products = sbProducts.map(r => ({...sbToProduct(r), inactive: r.inactive === true}));
       history = sbHistory.map(sbToHistory);
       actionLog = sbLogs.map(sbToLog);
 
