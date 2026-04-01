@@ -25,7 +25,7 @@
     font-family: 'Noto Sans KR', sans-serif;
     background: var(--bg);
     color: var(--text);
-    height: 100vh;
+    min-height: 100vh;
     display: flex;
     flex-direction: column;
   }
@@ -59,7 +59,7 @@
   }
 
   /* LAYOUT */
-  .app { display: flex; flex: 1; min-height: 0; overflow: hidden; height: calc(100vh - 56px); }
+  .app { display: flex; flex: 1; }
   nav {
     width: 200px; min-width: 200px;
     background: var(--surface);
@@ -71,6 +71,9 @@
     height: 100vh;
     overflow-y: auto;
     flex-shrink: 0;
+  }
+  @media (max-width: 768px) {
+    nav { display: none; }
   }
   .nav-label {
     font-size: 10px; font-family: 'IBM Plex Mono', monospace;
@@ -1232,7 +1235,7 @@ function sbToLog(r) {
 
 <script>
 // ========== STATE ==========
-const DATA_VERSION = 'v77-stock-fix';
+const DATA_VERSION = 'v78-mobile-fix';
 if (localStorage.getItem('edu-version') !== DATA_VERSION) {
   // 버전이 바뀌어도 기존 데이터는 유지 — 버전 번호만 업데이트
   localStorage.setItem('edu-version', DATA_VERSION);
