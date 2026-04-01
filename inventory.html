@@ -685,11 +685,15 @@ function sbToLog(r) {
               <option value="">전체 카테고리</option>
             </select>
           </div>
+          <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="checkbox" id="show-inactive" onchange="renderProducts()" style="cursor:pointer">
+              비활성 포함
+            </label>
           <button class="btn btn-primary" onclick="openModal('add-product')">+ 상품 등록</button>
         </div>
         <table>
           <thead><tr>
-            <th>코드</th><th>물품명</th><th>모델명</th><th>규격</th><th>카테고리</th><th>위치</th><th>단위</th><th>안전재고</th><th>관리</th>
+            <th>코드</th><th>물품명</th><th>모델명</th><th>규격</th><th>카테고리</th><th>위치</th><th>단위</th><th>안전재고</th><th>상태</th><th>관리</th>
           </tr></thead>
           <tbody id="product-table"></tbody>
         </table>
@@ -1226,7 +1230,7 @@ function sbToLog(r) {
 
 <script>
 // ========== STATE ==========
-const DATA_VERSION = 'v73-search-fix';
+const DATA_VERSION = 'v74-inactive';
 if (localStorage.getItem('edu-version') !== DATA_VERSION) {
   // 버전이 바뀌어도 기존 데이터는 유지 — 버전 번호만 업데이트
   localStorage.setItem('edu-version', DATA_VERSION);
@@ -1745,13 +1749,15 @@ function renderProducts() {
     });
   }
   const tb = document.getElementById('product-table');
+  const showInactive = document.getElementById('show-inactive')?.checked || false;
   const list = products.filter(p =>
+    (showInactive || !p.inactive) &&
     (!q || p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q) || (p.model||'').toLowerCase().includes(q)) &&
     (!catF || p.cat === catF)
   );
   tb.innerHTML = list.map((p,i) => {
     const ri = products.indexOf(p);
-    return `<tr>
+    return `<tr style="${p.inactive?'opacity:0.4':''}"
       <td style="font-family:monospace;font-size:12px;color:var(--text2)">${p.code}</td>
       <td>${p.name}</td>
       <td style="color:var(--text2)">${p.model||'-'}</td>
@@ -1760,7 +1766,10 @@ function renderProducts() {
       <td style="color:var(--text2);font-size:12px">${p.loc||'—'}</td>
       <td>${p.unit}</td>
       <td style="font-family:monospace">${p.safe}</td>
-      <td>
+      <td style="white-space:nowrap">
+        <span class="badge ${p.inactive?'badge-danger':'badge-ok'}" style="cursor:pointer;user-select:none;margin-right:4px" onclick="toggleProductActive(${ri})">${p.inactive?'비활성':'활성'}</span>
+      </td>
+      <td style="white-space:nowrap">
         <button class="btn btn-secondary btn-sm" style="margin-right:4px" onclick="editProduct(${ri})">수정</button>
         <button class="btn btn-danger btn-sm" onclick="delProduct(${ri})">삭제</button>
       </td>
@@ -1894,7 +1903,7 @@ function toggleIODropdown() {
 
 function filterIOProduct() {
   const q = document.getElementById('io-product-search').value.toLowerCase();
-  const list = products.map((p,i)=>({p,i})).filter(({p}) =>
+  const list = products.map((p,i)=>({p,i})).filter(({p}) => !p.inactive &&
     !q || p.name.toLowerCase().includes(q) ||
     (p.model||'').toLowerCase().includes(q) ||
     (p.spec||'').toLowerCase().includes(q) ||
@@ -2088,7 +2097,7 @@ function renderAlerts() {
   const al = document.getElementById('alert-list');
   const items = [];
   const outOfStock = [], lowStock = [];
-  products.forEach(p => {
+  products.filter(p => !p.inactive).forEach(p => {
     if (p.qty === 0) {
       outOfStock.push(p);
       items.push({ cls: 'danger', icon: '🚨', title: `[품절] ${p.name}${p.model?' ['+p.model+']':''}${p.spec?' ('+p.spec+')':''}`, desc: `재고가 완전히 소진되었습니다. 즉시 발주가 필요합니다.${p.loc?' 위치: '+p.loc:''}`, time: '즉시 발주' });
@@ -3246,6 +3255,15 @@ function filterAlerts(type) {
   if (btnDanger) btnDanger.style.outline = type==='danger' ? '2px solid var(--danger)' : 'none';
   if (btnWarn)   btnWarn.style.outline   = type==='warn'   ? '2px solid var(--warning)' : 'none';
   if (btnAll)    btnAll.style.outline    = type==='all'    ? '2px solid var(--accent)' : 'none';
+}
+
+
+function toggleProductActive(i) {
+  products[i].inactive = !products[i].inactive;
+  localStorage.setItem('edu-products', JSON.stringify(products));
+  dbUpdateProduct(products[i]).catch(e => console.warn('Supabase 비활성화 실패:', e));
+  renderProducts();
+  toast(products[i].inactive ? '🔒 비활성 처리됐습니다' : '✅ 활성화됐습니다');
 }
 
 // ========== MODAL ==========
