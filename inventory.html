@@ -66,15 +66,17 @@
     border-right: 1px solid var(--border);
     padding: 16px 0;
     display: flex; flex-direction: column; gap: 2px;
-    position: sticky;
-    top: 0;
-    height: 100vh;
-    overflow-y: auto;
     flex-shrink: 0;
   }
-  @media (max-width: 768px) {
-    nav { display: none; }
+  @media (min-width: 769px) {
+    nav {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
   }
+
   .nav-label {
     font-size: 10px; font-family: 'IBM Plex Mono', monospace;
     color: var(--text3); text-transform: uppercase; letter-spacing: 1px;
@@ -1235,7 +1237,7 @@ function sbToLog(r) {
 
 <script>
 // ========== STATE ==========
-const DATA_VERSION = 'v78-mobile-fix';
+const DATA_VERSION = 'v79-nav-fix';
 if (localStorage.getItem('edu-version') !== DATA_VERSION) {
   // 버전이 바뀌어도 기존 데이터는 유지 — 버전 번호만 업데이트
   localStorage.setItem('edu-version', DATA_VERSION);
