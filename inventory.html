@@ -1238,7 +1238,7 @@ function sbToLog(r) {
 
 <script>
 // ========== STATE ==========
-const DATA_VERSION = 'v80-inactive-sync';
+const DATA_VERSION = 'v81-sort-fix';
 if (localStorage.getItem('edu-version') !== DATA_VERSION) {
   // 버전이 바뀌어도 기존 데이터는 유지 — 버전 번호만 업데이트
   localStorage.setItem('edu-version', DATA_VERSION);
@@ -2023,7 +2023,12 @@ function renderIO() {
   }
 
   const tb = document.getElementById('io-table');
-  let list = [...history].reverse().filter(h => {
+  let list = [...history].sort((a, b) => {
+    // created_at 있으면 그걸로, 없으면 date로 정렬
+    const ta = a.created_at || a.date || '';
+    const tb = b.created_at || b.date || '';
+    return tb.localeCompare(ta);
+  }).filter(h => {
     if (q && !h.product.toLowerCase().includes(q) && !(h.person||'').toLowerCase().includes(q)) return false;
     if (typeF && h.type !== typeF) return false;
     if (semF && (h.semester||'') !== semF) return false;
