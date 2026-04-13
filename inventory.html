@@ -1238,7 +1238,7 @@ function sbToLog(r) {
 
 <script>
 // ========== STATE ==========
-const DATA_VERSION = 'v82-sort-fix2';
+const DATA_VERSION = 'v84-sort-simple';
 if (localStorage.getItem('edu-version') !== DATA_VERSION) {
   // 버전이 바뀌어도 기존 데이터는 유지 — 버전 번호만 업데이트
   localStorage.setItem('edu-version', DATA_VERSION);
@@ -2023,19 +2023,7 @@ function renderIO() {
   }
 
   const tb = document.getElementById('io-table');
-  let list = [...history].sort((a, b) => {
-    // created_at 기준 내림차순 (최신이 위)
-    if (a.created_at && b.created_at) return b.created_at.localeCompare(a.created_at);
-    // created_at 없으면 date 파싱
-    const parseDate = d => {
-      const m = d.match(/(\d{4})\.(\d+)\.(\d+)/);
-      if (m) return new Date(m[1], m[2]-1, m[3]).getTime();
-      const m2 = d.match(/(\d{2})\.(\d{2})\./);
-      if (m2) return new Date(2026, parseInt(m2[1])-1, parseInt(m2[2])).getTime();
-      return 0;
-    };
-    return parseDate(b.date) - parseDate(a.date);
-  }).filter(h => {
+  let list = [...history].slice().reverse().filter(h => {
     if (q && !h.product.toLowerCase().includes(q) && !(h.person||'').toLowerCase().includes(q)) return false;
     if (typeF && h.type !== typeF) return false;
     if (semF && (h.semester||'') !== semF) return false;
