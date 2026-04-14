@@ -1238,7 +1238,7 @@ function sbToLog(r) {
 
 <script>
 // ========== STATE ==========
-const DATA_VERSION = 'v85-date-sort';
+const DATA_VERSION = 'v86-name-sync';
 if (localStorage.getItem('edu-version') !== DATA_VERSION) {
   // 버전이 바뀌어도 기존 데이터는 유지 — 버전 번호만 업데이트
   localStorage.setItem('edu-version', DATA_VERSION);
@@ -1822,6 +1822,7 @@ function editProduct(i) {
 }
 function saveProduct() {
   const i = parseInt(document.getElementById('ep-idx').value);
+  const oldName = products[i].name; // 수정 전 상품명
   products[i].code = document.getElementById('ep-code').value.trim();
   products[i].name = document.getElementById('ep-name').value.trim();
   products[i].model = document.getElementById('ep-model').value.trim();
@@ -1831,11 +1832,24 @@ function saveProduct() {
   products[i].safe = parseInt(document.getElementById('ep-safe').value)||0;
   products[i].pcs = parseInt(document.getElementById('ep-pcs').value)||0;
   products[i].loc = document.getElementById('ep-loc').value.trim();
-  saveLog('수정', products[i].name, `코드: ${products[i].code}`);
-  // localStorage + Supabase 개별 업데이트
+  const newName = products[i].name;
+
+  // 상품명이 바뀌었으면 입출고 내역도 업데이트
+  if (oldName !== newName) {
+    history = history.map(h => h.product === oldName ? {...h, product: newName} : h);
+    localStorage.setItem('edu-history', JSON.stringify(history));
+    // Supabase 입출고 내역도 업데이트
+    sbClient.from('inventory_history')
+      .update({ product: newName })
+      .eq('product', oldName)
+      .then(() => console.log('✅ 입출고 내역 상품명 업데이트 완료'))
+      .catch(e => console.warn('Supabase history update error:', e));
+  }
+
+  saveLog('수정', newName, `코드: ${products[i].code}`);
   localStorage.setItem('edu-products', JSON.stringify(products));
   dbUpdateProduct(products[i]).catch(e => console.warn('Supabase update error:', e));
-  closeModal('edit-product'); renderProducts(); toast('✅ 수정되었습니다');
+  closeModal('edit-product'); renderProducts(); renderIO(); toast('✅ 수정되었습니다');
 }
 function delProduct(i) {
   if (!confirm(`"${products[i].name}"을(를) 삭제할까요?`)) return;
