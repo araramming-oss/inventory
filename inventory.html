@@ -1238,7 +1238,7 @@ function sbToLog(r) {
 
 <script>
 // ========== STATE ==========
-const DATA_VERSION = 'v88-name-fix2';
+const DATA_VERSION = 'v90-csv-upload';
 if (localStorage.getItem('edu-version') !== DATA_VERSION) {
   // 버전이 바뀌어도 기존 데이터는 유지 — 버전 번호만 업데이트
   localStorage.setItem('edu-version', DATA_VERSION);
@@ -2758,6 +2758,85 @@ async function exportEdufineAll() {
   toast(`✅ ${fileCount}개 파일이 ZIP으로 다운로드됩니다`);
 }
 
+
+function downloadTemplate() {
+  const header = '구분(in/out),상품명,수량,수령인,비고';
+  const examples = [
+    'in,A4용지,5,홍길동,',
+    'out,건전지,2,김철수,수업용',
+  ];
+  const csv = [header, ...examples].join('\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = '입출고_일괄업로드_템플릿.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function resetUpload() {
+  uploadRows = [];
+  document.getElementById('upload-result').innerHTML = '';
+  document.getElementById('upload-preview').style.display = 'none';
+  document.getElementById('preview-head').innerHTML = '';
+  document.getElementById('preview-body').innerHTML = '';
+  document.getElementById('upload-confirm-btn').style.display = 'none';
+  document.getElementById('upload-count').textContent = '0';
+  const fileInput = document.getElementById('csv-file');
+  if (fileInput) fileInput.value = '';
+}
+
+function handleCSVFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    let text = e.target.result;
+    // BOM 제거
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) {
+      document.getElementById('upload-result').innerHTML = '<span style="color:var(--danger)">❌ 데이터가 없습니다.</span>';
+      return;
+    }
+    // 헤더 스킵, 데이터 파싱
+    uploadRows = [];
+    const errors = [];
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(',');
+      const type = (cols[0] || '').trim().toLowerCase();
+      const product = (cols[1] || '').trim();
+      const qty = parseInt((cols[2] || '').trim());
+      const person = (cols[3] || '').trim();
+      const note = (cols[4] || '').trim();
+      if (!['in','out'].includes(type)) { errors.push(i+1 + '행: 구분이 in/out이 아님'); continue; }
+      if (!product) { errors.push(i+1 + '행: 상품명 없음'); continue; }
+      if (isNaN(qty) || qty <= 0) { errors.push(i+1 + '행: 수량 오류'); continue; }
+      const pi = products.findIndex(p => p.name === product && p.is_active !== false);
+      if (pi < 0) { errors.push(i+1 + '행: 상품 없음 (' + product + ')'); continue; }
+      uploadRows.push({ type, product, qty, person, note });
+    }
+    // 결과 표시
+    let resultHtml = '';
+    if (uploadRows.length > 0) resultHtml += '<span style="color:var(--success)">✅ ' + uploadRows.length + '건 인식됨</span> ';
+    if (errors.length > 0) resultHtml += '<span style="color:var(--danger)">⚠️ ' + errors.length + '건 오류: ' + errors.join(', ') + '</span>';
+    document.getElementById('upload-result').innerHTML = resultHtml;
+    // 미리보기
+    if (uploadRows.length > 0) {
+      const preview = document.getElementById('upload-preview');
+      preview.style.display = 'block';
+      document.getElementById('preview-head').innerHTML = '<tr><th>구분</th><th>상품명</th><th>수량</th><th>수령인</th><th>비고</th></tr>';
+      document.getElementById('preview-body').innerHTML = uploadRows.map(r =>
+        '<tr><td>' + (r.type==='in'?'입고':'출고') + '</td><td>' + r.product + '</td><td>' + r.qty + '</td><td>' + r.person + '</td><td>' + r.note + '</td></tr>'
+      ).join('');
+      document.getElementById('upload-confirm-btn').style.display = '';
+      document.getElementById('upload-count').textContent = uploadRows.length;
+    } else {
+      document.getElementById('upload-confirm-btn').style.display = 'none';
+    }
+  };
+  reader.readAsText(file, 'utf-8');
+}
 
 function confirmUpload() {
   let successCount = 0;
