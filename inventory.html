@@ -1055,7 +1055,8 @@ function sbToLog(r) {
       <div class="table-wrap" style="margin-bottom:16px">
         <div class="table-top" style="flex-wrap:wrap;gap:8px">
           <div class="table-title">입고 목록</div>
-          <div style="display:flex;gap:6px;align-items:center">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-secondary btn-sm" onclick="openModal('modal-paste-in')" style="background:rgba(79,142,247,0.15);border-color:var(--accent);color:var(--accent)">📋 스프레드시트 붙여넣기</button>
             <div class="search-box" style="padding:4px 10px">
               <span>🔍</span>
               <input type="text" id="bulkin-search" placeholder="상품 검색..." oninput="renderBulkInSearch()" style="width:160px">
@@ -1256,6 +1257,90 @@ function sbToLog(r) {
 </div>
 
 
+<!-- MODAL: 스프레드시트 붙여넣기 입고 -->
+<div class="modal-bg" id="modal-paste-in">
+  <div class="modal" style="width:900px;max-width:95vw;max-height:90vh;overflow-y:auto">
+    <div class="modal-title">📋 스프레드시트 붙여넣기 입고</div>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:14px">
+      엑셀/구글시트에서 행을 복사(Ctrl+C)한 뒤 아래 텍스트박스에 붙여넣으세요 (Ctrl+V).<br>
+      필요한 열: <strong style="color:var(--text)">내용(물품명)</strong>, <strong style="color:var(--text)">규격</strong>, <strong style="color:var(--text)">수량</strong>, <strong style="color:var(--text)">단위</strong>, 신청자(선택)
+    </p>
+    <!-- 열 매핑 설정 -->
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:12px">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:8px;font-weight:500">📐 열 순서 설정 (스프레드시트 열 번호, 1부터 시작)</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap">
+        <label style="font-size:12px;display:flex;align-items:center;gap:6px">
+          물품명 열: <input type="number" id="pi-col-name" value="2" min="1" max="30" oninput="parsePasteIn()"
+            style="width:48px;background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:3px 6px;color:var(--text);font-size:12px;outline:none">
+        </label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:6px">
+          규격 열: <input type="number" id="pi-col-spec" value="3" min="0" max="30" oninput="parsePasteIn()"
+            style="width:48px;background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:3px 6px;color:var(--text);font-size:12px;outline:none">
+          <span style="color:var(--text3)">(0=없음)</span>
+        </label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:6px">
+          수량 열: <input type="number" id="pi-col-qty" value="4" min="1" max="30" oninput="parsePasteIn()"
+            style="width:48px;background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:3px 6px;color:var(--text);font-size:12px;outline:none">
+        </label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:6px">
+          단위 열: <input type="number" id="pi-col-unit" value="5" min="0" max="30" oninput="parsePasteIn()"
+            style="width:48px;background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:3px 6px;color:var(--text);font-size:12px;outline:none">
+          <span style="color:var(--text3)">(0=없음)</span>
+        </label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:6px">
+          신청자 열: <input type="number" id="pi-col-person" value="9" min="0" max="30" oninput="parsePasteIn()"
+            style="width:48px;background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:3px 6px;color:var(--text);font-size:12px;outline:none">
+          <span style="color:var(--text3)">(0=없음)</span>
+        </label>
+      </div>
+    </div>
+    <!-- 텍스트 붙여넣기 영역 -->
+    <div id="pi-paste-area-wrap" style="position:relative;margin-bottom:12px">
+      <textarea id="pi-paste-area" placeholder="여기에 스프레드시트 내용을 붙여넣으세요 (Ctrl+V)&#10;&#10;예시:&#10;1&#9;플로터용지&#9;Matte 150G - 24인치&#9;20&#9;개&#9;...&#10;2&#9;코팅필름&#9;A4&#9;3&#9;개&#9;..."
+        oninput="parsePasteIn()"
+        style="width:100%;height:140px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;outline:none;resize:vertical;line-height:1.6"></textarea>
+      <div id="pi-parse-status" style="font-size:11px;color:var(--text3);margin-top:4px"></div>
+    </div>
+    <!-- 미리보기 -->
+    <div id="pi-preview-wrap" style="display:none">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+        <div style="font-size:13px;font-weight:500">미리보기</div>
+        <span id="pi-stat-matched" style="font-size:11px;background:rgba(34,197,94,0.15);color:var(--success);padding:2px 8px;border-radius:12px"></span>
+        <span id="pi-stat-new" style="font-size:11px;background:rgba(245,158,11,0.15);color:var(--warning);padding:2px 8px;border-radius:12px"></span>
+        <span id="pi-stat-skip" style="font-size:11px;background:rgba(139,147,184,0.15);color:var(--text2);padding:2px 8px;border-radius:12px;display:none"></span>
+      </div>
+      <div style="overflow-x:auto;border-radius:8px;border:1px solid var(--border)">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="background:var(--surface2)">
+              <th style="padding:8px 10px;text-align:left;color:var(--text2);font-weight:500;white-space:nowrap">상태</th>
+              <th style="padding:8px 10px;text-align:left;color:var(--text2);font-weight:500">붙여넣은 물품명</th>
+              <th style="padding:8px 10px;text-align:left;color:var(--text2);font-weight:500">매칭 상품</th>
+              <th style="padding:8px 10px;text-align:left;color:var(--text2);font-weight:500">규격</th>
+              <th style="padding:8px 10px;text-align:center;color:var(--text2);font-weight:500;white-space:nowrap">수량</th>
+              <th style="padding:8px 10px;text-align:left;color:var(--text2);font-weight:500">단위</th>
+              <th style="padding:8px 10px;text-align:left;color:var(--text2);font-weight:500">수령인</th>
+              <th style="padding:8px 10px;text-align:left;color:var(--text2);font-weight:500">카테고리</th>
+              <th style="padding:8px 10px;text-align:center;color:var(--text2);font-weight:500">제외</th>
+            </tr>
+          </thead>
+          <tbody id="pi-preview-body"></tbody>
+        </table>
+      </div>
+      <div style="margin-top:10px;font-size:11px;color:var(--text3);display:flex;gap:14px;flex-wrap:wrap">
+        <span>🟢 기존 상품 재고 증가</span>
+        <span>🟡 새 상품으로 등록 후 입고</span>
+        <span>카테고리/단위는 새 상품 등록 시에만 사용됩니다</span>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap">
+      <button class="btn btn-secondary" onclick="closeModal('modal-paste-in');document.getElementById('pi-paste-area').value='';document.getElementById('pi-preview-wrap').style.display='none'">취소</button>
+      <button class="btn btn-secondary" onclick="document.getElementById('pi-paste-area').value='';document.getElementById('pi-preview-wrap').style.display='none';document.getElementById('pi-parse-status').textContent=''">🗑️ 지우기</button>
+      <button class="btn btn-primary" id="pi-confirm-btn" onclick="confirmPasteIn()" style="display:none">✅ 입고 처리</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL: 일괄 업로드 -->
 <div class="modal-bg" id="modal-bulk-upload">
   <div class="modal" style="width:520px">
@@ -1288,7 +1373,7 @@ function sbToLog(r) {
 
 <script>
 // ========== STATE ==========
-const DATA_VERSION = 'v88-bulk-in-88items';
+const DATA_VERSION = 'v89-paste-in';
 if (localStorage.getItem('edu-version') !== DATA_VERSION) {
   // 버전이 바뀌어도 기존 데이터는 유지 — 버전 번호만 업데이트
   localStorage.setItem('edu-version', DATA_VERSION);
@@ -2578,6 +2663,244 @@ function submitBulkIn() {
   toast(`✅ ${ok}건 일괄 입고 완료`);
 }
 function clearBulkInList() { bulkInList = []; renderBulkInList(); }
+
+// ========== 스프레드시트 붙여넣기 입고 ==========
+let pasteInRows = []; // { rawName, rawSpec, qty, unit, person, matchedPi, isNew, excluded, newCat, newUnit }
+
+function parsePasteIn() {
+  const text = document.getElementById('pi-paste-area').value;
+  const colName   = (parseInt(document.getElementById('pi-col-name').value)   || 2) - 1;
+  const colSpec   = (parseInt(document.getElementById('pi-col-spec').value)   || 3) - 1;
+  const colQty    = (parseInt(document.getElementById('pi-col-qty').value)    || 4) - 1;
+  const colUnit   = (parseInt(document.getElementById('pi-col-unit').value)   || 5) - 1;
+  const colPerson = (parseInt(document.getElementById('pi-col-person').value) || 9) - 1;
+  const useSpec   = parseInt(document.getElementById('pi-col-spec').value)   > 0;
+  const useUnit   = parseInt(document.getElementById('pi-col-unit').value)   > 0;
+  const usePerson = parseInt(document.getElementById('pi-col-person').value) > 0;
+
+  const lines = text.split('\n').filter(l => l.trim());
+  pasteInRows = [];
+
+  lines.forEach(line => {
+    const cols = line.split('\t');
+    const rawName = (cols[colName] || '').trim();
+    if (!rawName) return;
+    const rawSpec   = useSpec   ? (cols[colSpec]   || '').trim() : '';
+    const qty       = parseFloat((cols[colQty] || '1').replace(/[^0-9.]/g,'')) || 1;
+    const unit      = useUnit   ? (cols[colUnit]   || '').trim() : '';
+    const person    = usePerson ? (cols[colPerson] || '').trim() : '';
+
+    // 기존 상품 매칭 (유사도)
+    const { pi, score } = matchProduct(rawName, rawSpec);
+    const isNew = (pi === -1 || score < 0.3);
+
+    pasteInRows.push({
+      rawName, rawSpec, qty, unit: unit||'개', person,
+      matchedPi: isNew ? -1 : pi,
+      isNew,
+      excluded: false,
+      newCat: guessCat(rawName),
+      newUnit: unit||'개'
+    });
+  });
+
+  renderPasteInPreview();
+}
+
+function matchProduct(rawName, rawSpec) {
+  // 정규화: 괄호 제거, 공백 정리, 소문자
+  const norm = s => s.replace(/\[.*?\]/g,'').replace(/\(.*?\)/g,'').replace(/\s+/g,' ').trim().toLowerCase();
+  const qn = norm(rawName);
+  let bestPi = -1, bestScore = 0;
+
+  products.forEach((p, pi) => {
+    if (p.inactive) return;
+    const pn = norm(p.name);
+    const pm = norm(p.model||'');
+    const ps = norm(p.spec||'');
+
+    let score = 0;
+
+    // 완전 포함
+    if (pn === qn) { score = 1.0; }
+    else if (qn.includes(pn) || pn.includes(qn)) { score = 0.85; }
+    else {
+      // 토큰 유사도
+      const qt = qn.split(/\s+/);
+      const pt = pn.split(/\s+/);
+      const common = qt.filter(t => pt.some(pp => pp.includes(t) || t.includes(pp)));
+      if (qt.length && pt.length) {
+        score = common.length / Math.max(qt.length, pt.length) * 0.75;
+      }
+      // 모델 매칭 보너스
+      if (pm && (qn.includes(pm) || rawSpec.toLowerCase().includes(pm))) score += 0.1;
+    }
+    // 규격 보너스
+    if (rawSpec && ps && (ps.includes(rawSpec.toLowerCase()) || rawSpec.toLowerCase().includes(ps))) score += 0.05;
+
+    if (score > bestScore) { bestScore = score; bestPi = pi; }
+  });
+  return { pi: bestPi, score: bestScore };
+}
+
+function guessCat(name) {
+  const n = name.toLowerCase();
+  if (/용지|라벨|스케치|도화/.test(n)) return '용지';
+  if (/케이블|hdmi|usb|lan|랜|aux/.test(n)) return '케이블';
+  if (/테이프|풀|접착/.test(n)) return '소모품';
+  if (/마카|연필|펜|지우개|색연필|보드/.test(n)) return '필기구';
+  if (/자석|공구|니퍼|커터|스트리퍼/.test(n)) return '공구';
+  if (/키보드|마우스|젠더|리더기|카드/.test(n)) return '전자기기';
+  if (/멀티탭|콘센트|충전/.test(n)) return '전기';
+  if (/잉크|토너/.test(n)) return '소모품';
+  if (/물티슈|청소/.test(n)) return '청소용품';
+  if (/부품함|박스|상자/.test(n)) return '보관';
+  return 'ETC';
+}
+
+const CAT_PREFIX = { '용지':'P', '필기구':'S', '케이블':'C', '전자기기':'C', '전기':'ETC', '소모품':'ETC', '공구':'ETC', '청소용품':'ETC', '보관':'ETC', 'ETC':'ETC' };
+
+function nextPasteCode(cat) {
+  const prefix = CAT_PREFIX[cat] || 'ETC';
+  const nums = products
+    .filter(p => p.code && p.code.startsWith(prefix + '-'))
+    .map(p => parseInt(p.code.split('-')[1]) || 0);
+  const next = (nums.length ? Math.max(...nums) : 0) + 1;
+  return `${prefix}-${String(next).padStart(3,'0')}`;
+}
+
+function renderPasteInPreview() {
+  const wrap = document.getElementById('pi-preview-wrap');
+  const body = document.getElementById('pi-preview-body');
+  const status = document.getElementById('pi-parse-status');
+  const confirmBtn = document.getElementById('pi-confirm-btn');
+
+  if (!pasteInRows.length) {
+    wrap.style.display = 'none';
+    confirmBtn.style.display = 'none';
+    status.textContent = '';
+    return;
+  }
+
+  const visible = pasteInRows.filter(r => !r.excluded);
+  const matched = visible.filter(r => !r.isNew).length;
+  const newProds = visible.filter(r => r.isNew).length;
+  const skipped  = pasteInRows.filter(r => r.excluded).length;
+
+  status.textContent = `${pasteInRows.length}행 인식됨`;
+  document.getElementById('pi-stat-matched').textContent = `🟢 기존 상품 ${matched}건`;
+  document.getElementById('pi-stat-new').textContent = `🟡 신규 상품 ${newProds}건`;
+  const skipEl = document.getElementById('pi-stat-skip');
+  if (skipped) { skipEl.style.display=''; skipEl.textContent = `⛔ 제외 ${skipped}건`; }
+  else { skipEl.style.display='none'; }
+
+  const CATS = ['용지','필기구','케이블','전자기기','전기','소모품','공구','청소용품','보관','ETC'];
+  const catOpts = CATS.map(c => `<option value="${c}">${c}</option>`).join('');
+
+  body.innerHTML = pasteInRows.map((r, i) => {
+    const bg = r.excluded ? 'opacity:0.4' : '';
+    const matched_p = r.matchedPi >= 0 ? products[r.matchedPi] : null;
+
+    const badge = r.excluded ? '<span style="color:var(--text3)">⛔</span>'
+      : r.isNew ? '<span style="background:rgba(245,158,11,0.2);color:var(--warning);border-radius:4px;padding:1px 6px;font-size:10px">신규</span>'
+      : '<span style="background:rgba(34,197,94,0.15);color:var(--success);border-radius:4px;padding:1px 6px;font-size:10px">매칭</span>';
+
+    let matchCell, unitCell, catCell;
+    if (matched_p) {
+      matchCell = `<span style="color:var(--success);font-size:11px">✅</span> ${matched_p.name}${matched_p.spec ? ` <span style="color:var(--text3)">${matched_p.spec}</span>` : ''}`;
+      unitCell  = `<span style="color:var(--text2)">${matched_p.unit}</span>`;
+      catCell   = `<span style="color:var(--text3)">${matched_p.cat||'-'}</span>`;
+    } else {
+      const catSel = CATS.map(c => `<option value="${c}"${c===r.newCat?' selected':''}>${c}</option>`).join('');
+      matchCell = `<span style="color:var(--warning);font-size:11px">🆕</span> 신규 등록`;
+      unitCell  = `<input type="text" value="${r.newUnit}" onchange="pasteInRows[${i}].newUnit=this.value" style="width:48px;background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:2px 6px;color:var(--text);font-size:11px;outline:none">`;
+      catCell   = `<select onchange="pasteInRows[${i}].newCat=this.value" style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:2px 4px;color:var(--text);font-size:11px;outline:none">${catSel}</select>`;
+    }
+
+    return `<tr style="${bg};border-bottom:1px solid var(--border)">
+      <td style="padding:7px 10px;white-space:nowrap">${badge}</td>
+      <td style="padding:7px 10px;max-width:200px">
+        <div style="font-size:12px">${r.rawName}</div>
+        ${r.rawSpec?`<div style="font-size:10px;color:var(--text3)">${r.rawSpec}</div>`:''}
+      </td>
+      <td style="padding:7px 10px;font-size:11px">${matchCell}</td>
+      <td style="padding:7px 10px;font-size:11px;color:var(--text2)">${r.rawSpec||'-'}</td>
+      <td style="padding:7px 10px;text-align:center">
+        <input type="number" value="${r.qty}" min="1" onchange="pasteInRows[${i}].qty=parseFloat(this.value)||1"
+          style="width:60px;background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:2px 6px;color:var(--text);font-size:12px;outline:none;text-align:center">
+      </td>
+      <td style="padding:7px 10px">${unitCell}</td>
+      <td style="padding:7px 10px">
+        <input type="text" placeholder="수령인" value="${r.person}" onchange="pasteInRows[${i}].person=this.value"
+          style="width:80px;background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:2px 6px;color:var(--text);font-size:11px;outline:none">
+      </td>
+      <td style="padding:7px 10px;font-size:11px">${catCell}</td>
+      <td style="padding:7px 10px;text-align:center">
+        <input type="checkbox" ${r.excluded?'checked':''} onchange="pasteInRows[${i}].excluded=this.checked;renderPasteInPreview()"
+          title="이 행 제외">
+      </td>
+    </tr>`;
+  }).join('');
+
+  wrap.style.display = 'block';
+  confirmBtn.style.display = visible.length ? '' : 'none';
+}
+
+function confirmPasteIn() {
+  const globalPerson   = document.getElementById('bulkin-person-global')?.value.trim()   || '';
+  const globalSemester = document.getElementById('bulkin-semester-global')?.value         || '';
+  const active = pasteInRows.filter(r => !r.excluded);
+  if (!active.length) { toast('❌ 처리할 항목이 없습니다'); return; }
+
+  let inCount = 0, newCount = 0;
+  const prevLen = history.length;
+  const updatedPis = [];
+
+  active.forEach(r => {
+    const person = r.person || globalPerson || '미입력';
+    const semester = globalSemester;
+
+    if (!r.isNew && r.matchedPi >= 0) {
+      // 기존 상품 재고 증가
+      const p = products[r.matchedPi];
+      p.qty = Math.round((p.qty + r.qty) * 1000) / 1000;
+      history.push({ date: fmt(new Date()), type: 'in', product: p.name, model: p.model||'', spec: p.spec||'', qty: r.qty, qtyUnit: p.unit, person, semester, note: r.rawSpec||'', created_at: new Date().toISOString() });
+      updatedPis.push(r.matchedPi);
+      inCount++;
+    } else {
+      // 신규 상품 등록 후 입고
+      const cat  = r.newCat || 'ETC';
+      const unit = r.newUnit || '개';
+      const code = nextPasteCode(cat);
+      const newP = { code, name: r.rawName, model: '', spec: r.rawSpec||'', cat, loc: '', unit, safe: 0, pcs: 0, price: 0, qty: r.qty };
+      products.push(newP);
+      history.push({ date: fmt(new Date()), type: 'in', product: r.rawName, model: '', spec: r.rawSpec||'', qty: r.qty, qtyUnit: unit, person, semester, note: '스프레드시트 신규 등록', created_at: new Date().toISOString() });
+      updatedPis.push(products.length - 1);
+      inCount++;
+      newCount++;
+    }
+  });
+
+  localStorage.setItem('edu-products', JSON.stringify(products));
+  localStorage.setItem('edu-history',  JSON.stringify(history));
+
+  const newHistItems = history.slice(prevLen);
+  const updatedProds = updatedPis.map(pi => products[pi]);
+  Promise.all([
+    ...updatedProds.map(p => dbUpdateProduct(p)),
+    dbAddHistoryBulk(newHistItems)
+  ]).then(() => console.log('✅ 붙여넣기 입고 Supabase 저장 완료'))
+    .catch(e => console.warn('Supabase paste-in error:', e));
+
+  pasteInRows = [];
+  document.getElementById('pi-paste-area').value = '';
+  document.getElementById('pi-preview-wrap').style.display = 'none';
+  document.getElementById('pi-confirm-btn').style.display = 'none';
+  closeModal('modal-paste-in');
+  renderDashboard();
+  renderBulkInList();
+  toast(`✅ ${inCount}건 입고 완료${newCount ? ` (신규 ${newCount}개 상품 등록)` : ''}`);
+}
 
 // ========== 일괄 출고 ==========
 function renderBulkOut() {
