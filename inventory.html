@@ -2201,7 +2201,7 @@ function renderIO() {
     if (cb !== ca) return cb - ca;
     // created_at도 같으면 출고가 위, 입고가 아래 (시간순: 입고→출고)
     if (a.type === b.type) return 0;
-    return a.type === 'in' ? -1 : 1;
+    return a.type === 'in' ? 1 : -1;
   }).filter(h => {
     if (q && !h.product.toLowerCase().includes(q) && !(h.person||'').toLowerCase().includes(q)) return false;
     if (typeF && h.type !== typeF) return false;
