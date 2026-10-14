@@ -536,6 +536,51 @@ async function dbDeleteProduct(code) {
   if (error) console.error('dbDeleteProduct error:', JSON.stringify(error));
 }
 
+// ========== 상품 별칭 (붙여넣기 입고 때 다르게 들어오는 이름 기억) ==========
+// 비교용 키: 소문자 + 공백 전부 제거 (그 외는 정확히 일치해야 함)
+function aliasKey(s) { return String(s||'').toLowerCase().replace(/\s+/g, ''); }
+
+async function dbLoadAliases() {
+  if (!SUPA_ENABLED) return [];
+  const { data, error } = await sbClient.from('inventory_aliases').select('*').limit(5000);
+  if (error) { console.warn('별칭 표를 불러오지 못했어요 (표가 아직 없을 수 있음):', JSON.stringify(error)); return []; }
+  return (data || []).map(r => ({ key: r.alias_key, alias: r.alias, code: r.product_code }));
+}
+async function dbSaveAlias(a) {
+  if (!SUPA_ENABLED) return;
+  const { error } = await sbClient.from('inventory_aliases')
+    .upsert([{ alias_key: a.key, alias: a.alias, product_code: a.code }], { onConflict: 'alias_key' });
+  if (error) console.error('dbSaveAlias error:', JSON.stringify(error));
+}
+async function dbDeleteAlias(key) {
+  if (!SUPA_ENABLED) return;
+  const { error } = await sbClient.from('inventory_aliases').delete().eq('alias_key', key);
+  if (error) console.error('dbDeleteAlias error:', JSON.stringify(error));
+}
+async function dbDeleteAliasesByCode(code) {
+  if (!SUPA_ENABLED) return;
+  const { error } = await sbClient.from('inventory_aliases').delete().eq('product_code', code);
+  if (error) console.error('dbDeleteAliasesByCode error:', JSON.stringify(error));
+}
+async function dbRecodeAliases(oldCode, newCode) {
+  if (!SUPA_ENABLED) return;
+  const { error } = await sbClient.from('inventory_aliases').update({ product_code: newCode }).eq('product_code', oldCode);
+  if (error) console.error('dbRecodeAliases error:', JSON.stringify(error));
+}
+
+// 별칭 추가 (같은 키가 있으면 새 상품으로 덮어씀). 상품 본래 이름과 같으면 저장하지 않음
+function addAlias(alias, code) {
+  const key = aliasKey(alias);
+  const p = products.find(p => p.code === code);
+  if (!key || !p || aliasKey(p.name) === key) return false;
+  const existing = aliases.find(a => a.key === key);
+  if (existing && existing.code === code) return false;
+  if (existing) { existing.code = code; existing.alias = alias; }
+  else aliases.push({ key, alias, code });
+  dbSaveAlias({ key, alias, code }).catch(e => console.warn('별칭 저장 실패:', e));
+  return true;
+}
+
 // 히스토리 1건 추가
 async function dbAddHistory(h) {
   if (!SUPA_ENABLED) return;
@@ -1249,6 +1294,15 @@ function sbToLog(r) {
       </div>
 
     </div>
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+      <div style="font-size:13px;font-weight:600;margin-bottom:4px">다른 이름 (별칭)</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">스프레드시트 붙여넣기 입고 때 이 이름으로 들어오면 이 상품으로 자동 매칭돼요. 잘못된 이름은 ✕로 지우세요.</div>
+      <div id="ep-alias-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px"></div>
+      <div style="display:flex;gap:6px">
+        <input class="form-input" id="ep-alias-input" placeholder="예: 스카치 양면테이프(136D) 19mm" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();addAliasFromEdit();}">
+        <button class="btn btn-secondary btn-sm" onclick="addAliasFromEdit()">+ 추가</button>
+      </div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeModal('edit-product')">취소</button>
       <button class="btn btn-primary" onclick="saveProduct()">저장</button>
@@ -1388,6 +1442,7 @@ let actionLog = JSON.parse(localStorage.getItem('edu-log') || '[]');
 let currentIO = 'in';
 let bulkList = [];
 let bulkInList = [];
+let aliases = []; // { key, alias, code }
 let uploadRows = [];
 let auditData = JSON.parse(localStorage.getItem('edu-audit-data') || '{}');
 let auditHistoryLog = JSON.parse(localStorage.getItem('edu-audit-history') || '[]');
@@ -1955,11 +2010,51 @@ function editProduct(i) {
   document.getElementById('ep-safe').value = p.safe;
   document.getElementById('ep-pcs').value = p.pcs||'';
   document.getElementById('ep-loc').value = p.loc||'';
+  document.getElementById('ep-alias-input').value = '';
+  renderAliasList(p.code);
   openModal('edit-product');
+}
+function renderAliasList(code) {
+  const box = document.getElementById('ep-alias-list');
+  if (!box) return;
+  const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const list = aliases.filter(a => a.code === code);
+  box.innerHTML = list.length
+    ? list.map(a => `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:2px 4px 2px 10px;font-size:12px">${esc(a.alias)}
+        <button onclick="removeAlias('${encodeURIComponent(a.key)}')" title="별칭 삭제" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0 4px">✕</button></span>`).join('')
+    : '<span style="font-size:12px;color:var(--text3)">아직 없어요</span>';
+}
+function addAliasFromEdit() {
+  const i = parseInt(document.getElementById('ep-idx').value);
+  const p = products[i];
+  const input = document.getElementById('ep-alias-input');
+  const val = input.value.trim();
+  if (!val) return;
+  const other = aliases.find(a => a.key === aliasKey(val) && a.code !== p.code);
+  if (other) {
+    const op = products.find(x => x.code === other.code);
+    if (!confirm(`이 이름은 이미 "${op ? op.name : other.code}"의 별칭이에요.\n이 상품으로 옮길까요?`)) return;
+  }
+  if (addAlias(val, p.code)) { saveLog('별칭 추가', p.name, val); toast('✅ 별칭을 추가했어요'); }
+  else toast('이미 등록된 이름이에요');
+  input.value = '';
+  renderAliasList(p.code);
+}
+function removeAlias(encKey) {
+  const key = decodeURIComponent(encKey);
+  const a = aliases.find(a => a.key === key);
+  if (!a) return;
+  aliases = aliases.filter(x => x.key !== key);
+  dbDeleteAlias(key).catch(e => console.warn('별칭 삭제 실패:', e));
+  const p = products.find(x => x.code === a.code);
+  saveLog('별칭 삭제', p ? p.name : a.code, a.alias);
+  renderAliasList(a.code);
+  toast('🗑️ 별칭을 지웠어요');
 }
 function saveProduct() {
   const i = parseInt(document.getElementById('ep-idx').value);
   const oldName = products[i].name; // 수정 전 상품명
+  const oldCode = products[i].code; // 수정 전 코드 (별칭 연결 유지용)
   products[i].code = document.getElementById('ep-code').value.trim();
   products[i].name = document.getElementById('ep-name').value.trim();
   products[i].model = document.getElementById('ep-model').value.trim();
@@ -1970,6 +2065,12 @@ function saveProduct() {
   products[i].pcs = parseInt(document.getElementById('ep-pcs').value)||0;
   products[i].loc = document.getElementById('ep-loc').value.trim();
   const newName = products[i].name;
+
+  // 상품 코드가 바뀌었으면 별칭도 새 코드로 옮김
+  if (oldCode !== products[i].code) {
+    aliases.forEach(a => { if (a.code === oldCode) a.code = products[i].code; });
+    dbRecodeAliases(oldCode, products[i].code).catch(e => console.warn('별칭 코드 변경 실패:', e));
+  }
 
   // 상품명이 바뀌었으면 입출고 내역도 업데이트
   if (oldName !== newName) {
@@ -1993,6 +2094,8 @@ function delProduct(i) {
   saveLog('삭제', products[i].name, `코드: ${products[i].code} / 카테고리: ${products[i].cat}`);
   const delCode = products[i].code;
   products.splice(i, 1);
+  aliases = aliases.filter(a => a.code !== delCode);
+  dbDeleteAliasesByCode(delCode).catch(e => console.warn('별칭 삭제 실패:', e));
   localStorage.setItem('edu-products', JSON.stringify(products));
   dbDeleteProduct(delCode).catch(e => console.warn('Supabase delete error:', e));
   renderProducts(); toast('🗑️ 삭제되었습니다');
@@ -2707,13 +2810,18 @@ function parsePasteIn() {
     const person    = usePerson ? (cols[colPerson] || '').trim() : '';
 
     // 기존 상품 매칭 (유사도)
-    const { pi, score } = matchProduct(rawName, rawSpec);
-    const isNew = (pi === -1 || score < 0.3);
+    // 확실한 경우(이름 동일, 또는 포함관계 + 모델번호 충돌 없음)만 자동 매칭.
+    // 애매하면 신규로 두고 '비슷한 상품'으로 제안만 해서 사용자가 직접 고르게 함.
+    const { pi, score, confident, candidates, viaAlias } = matchProduct(rawName, rawSpec);
+    const isNew = !confident;
 
     pasteInRows.push({
       rawName, rawSpec, qty, unit: unit||'개', person,
       matchedPi: isNew ? -1 : pi,
       isNew,
+      candidates,
+      viaAlias: !!viaAlias,
+      suggestPi: (isNew && pi >= 0 && score >= 0.3) ? pi : -1,
       excluded: false,
       newCat: guessCat(rawName),
       newUnit: unit||'개'
@@ -2726,8 +2834,20 @@ function parsePasteIn() {
 function matchProduct(rawName, rawSpec) {
   // 정규화: 괄호 제거, 공백 정리, 소문자
   const norm = s => s.replace(/\[.*?\]/g,'').replace(/\(.*?\)/g,'').replace(/\s+/g,' ').trim().toLowerCase();
+  // 0) 저장된 별칭과 정확히 같으면 바로 확정
+  const ak = aliasKey(rawName);
+  const al = aliases.find(a => a.key === ak);
+  if (al) {
+    const api = products.findIndex(p => p.code === al.code && !p.inactive);
+    if (api >= 0) return { pi: api, score: 1, confident: true, candidates: [api], viaAlias: true };
+  }
+
   const qn = norm(rawName);
-  let bestPi = -1, bestScore = 0;
+  // 숫자가 들어간 토큰(136d, 183, 19mm 등) = 모델번호/규격. 서로 다르면 다른 상품일 가능성이 높음
+  const codeTokens = s => new Set((s.replace(/\s+/g,'').match(/[a-z]*\d+(?:\.\d+)?[a-z]*/g) || []));
+  const qCodes = codeTokens(qn);
+  let bestPi = -1, bestScore = 0, bestExact = false;
+  const scored = [];
 
   products.forEach((p, pi) => {
     if (p.inactive) return;
@@ -2738,7 +2858,8 @@ function matchProduct(rawName, rawSpec) {
     let score = 0;
 
     // 완전 포함
-    if (pn === qn) { score = 1.0; }
+    const same = pn.replace(/\s+/g,'') === qn.replace(/\s+/g,'');
+    if (same) { score = 1.0; }
     else if (qn.includes(pn) || pn.includes(qn)) { score = 0.85; }
     else {
       // 토큰 유사도
@@ -2754,9 +2875,33 @@ function matchProduct(rawName, rawSpec) {
     // 규격 보너스
     if (rawSpec && ps && (ps.includes(rawSpec.toLowerCase()) || rawSpec.toLowerCase().includes(ps))) score += 0.05;
 
-    if (score > bestScore) { bestScore = score; bestPi = pi; }
+    if (score > 0) scored.push({ pi, score });
+    if (score > bestScore) { bestScore = score; bestPi = pi; bestExact = same; }
   });
-  return { pi: bestPi, score: bestScore };
+
+  // 자동 매칭은 확실할 때만
+  let confident = false;
+  if (bestPi >= 0) {
+    if (bestExact) confident = true;
+    else if (bestScore >= 0.85) {
+      const pCodes = codeTokens(norm(products[bestPi].name));
+      const conflict = [...qCodes].some(t => !pCodes.has(t)) || [...pCodes].some(t => !qCodes.has(t));
+      confident = !conflict;
+    }
+  }
+  const candidates = scored.sort((a, b) => b.score - a.score).slice(0, 5).map(c => c.pi);
+  return { pi: bestPi, score: bestScore, confident, candidates };
+}
+
+// 미리보기에서 매칭 대상을 직접 바꿈 (-1 = 신규 등록)
+function setPasteMatch(i, val) {
+  const r = pasteInRows[i];
+  const pi = parseInt(val);
+  r.matchedPi = pi;
+  r.isNew = pi < 0;
+  r.userChose = true;
+  r.viaAlias = false;
+  renderPasteInPreview();
 }
 
 function guessCat(name) {
@@ -2805,7 +2950,8 @@ function renderPasteInPreview() {
 
   status.textContent = `${pasteInRows.length}행 인식됨`;
   document.getElementById('pi-stat-matched').textContent = `🟢 기존 상품 ${matched}건`;
-  document.getElementById('pi-stat-new').textContent = `🟡 신규 상품 ${newProds}건`;
+  const toCheck = visible.filter(r => r.isNew && r.suggestPi >= 0 && !r.userChose).length;
+  document.getElementById('pi-stat-new').textContent = `🟡 신규 상품 ${newProds}건` + (toCheck ? ` (⚠️ 비슷한 상품 있음 ${toCheck}건 — 확인해 주세요)` : '');
   const skipEl = document.getElementById('pi-stat-skip');
   if (skipped) { skipEl.style.display=''; skipEl.textContent = `⛔ 제외 ${skipped}건`; }
   else { skipEl.style.display='none'; }
@@ -2819,16 +2965,27 @@ function renderPasteInPreview() {
 
     const badge = r.excluded ? '<span style="color:var(--text3)">⛔</span>'
       : r.isNew ? '<span style="background:rgba(245,158,11,0.2);color:var(--warning);border-radius:4px;padding:1px 6px;font-size:10px">신규</span>'
-      : '<span style="background:rgba(34,197,94,0.15);color:var(--success);border-radius:4px;padding:1px 6px;font-size:10px">매칭</span>';
+      : `<span style="background:rgba(34,197,94,0.15);color:var(--success);border-radius:4px;padding:1px 6px;font-size:10px">매칭${r.viaAlias && !r.userChose ? '·별칭' : ''}</span>`;
+
+    // 매칭 대상 선택 드롭다운: 신규 등록 + 비슷한 상품 후보 (+ 현재 선택)
+    const optPis = [...(r.candidates || [])];
+    if (r.matchedPi >= 0 && !optPis.includes(r.matchedPi)) optPis.unshift(r.matchedPi);
+    const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+    const matchSelect = `<select onchange="setPasteMatch(${i}, this.value)" style="max-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:2px 4px;color:var(--text);font-size:11px;outline:none">
+        <option value="-1"${r.matchedPi < 0 ? ' selected' : ''}>🆕 신규 상품으로 등록</option>
+        ${optPis.map(pi => `<option value="${pi}"${pi === r.matchedPi ? ' selected' : ''}>✅ ${esc(products[pi].name)}${products[pi].spec ? ' · ' + esc(products[pi].spec) : ''}</option>`).join('')}
+      </select>`;
+    const suggestHint = (r.isNew && r.suggestPi >= 0 && !r.userChose)
+      ? `<div style="font-size:10px;color:var(--warning);margin-top:3px">⚠️ 비슷한 상품: ${esc(products[r.suggestPi].name)} — 같은 상품이면 위에서 선택</div>` : '';
 
     let matchCell, unitCell, catCell;
     if (matched_p) {
-      matchCell = `<span style="color:var(--success);font-size:11px">✅</span> ${matched_p.name}${matched_p.spec ? ` <span style="color:var(--text3)">${matched_p.spec}</span>` : ''}`;
+      matchCell = matchSelect;
       unitCell  = `<span style="color:var(--text2)">${matched_p.unit}</span>`;
       catCell   = `<span style="color:var(--text3)">${matched_p.cat||'-'}</span>`;
     } else {
       const catSel = CATS.map(c => `<option value="${c}"${c===r.newCat?' selected':''}>${c}</option>`).join('');
-      matchCell = `<span style="color:var(--warning);font-size:11px">🆕</span> 신규 등록`;
+      matchCell = matchSelect + suggestHint;
       unitCell  = `<input type="text" value="${r.newUnit}" onchange="pasteInRows[${i}].newUnit=this.value" style="width:48px;background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:2px 6px;color:var(--text);font-size:11px;outline:none">`;
       catCell   = `<select onchange="pasteInRows[${i}].newCat=this.value" style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:2px 4px;color:var(--text);font-size:11px;outline:none">${catSel}</select>`;
     }
@@ -2868,7 +3025,7 @@ function confirmPasteIn() {
   const active = pasteInRows.filter(r => !r.excluded);
   if (!active.length) { toast('❌ 처리할 항목이 없습니다'); return; }
 
-  let inCount = 0, newCount = 0;
+  let inCount = 0, newCount = 0, aliasCount = 0;
   const prevLen = history.length;
   const updatedPis = [];
 
@@ -2883,6 +3040,8 @@ function confirmPasteIn() {
       history.push({ date: fmt(new Date()), type: 'in', product: p.name, model: p.model||'', spec: p.spec||'', qty: r.qty, qtyUnit: p.unit, person, semester, note: r.rawSpec||'', created_at: new Date().toISOString() });
       updatedPis.push(r.matchedPi);
       inCount++;
+      // 사용자가 직접 기존 상품을 골랐으면 이 이름을 별칭으로 기억 → 다음부터 자동 매칭
+      if (r.userChose && addAlias(r.rawName, p.code)) aliasCount++;
     } else {
       // 신규 상품 등록 후 입고
       const cat  = r.newCat || 'ETC';
@@ -2915,7 +3074,7 @@ function confirmPasteIn() {
   closeModal('modal-paste-in');
   renderDashboard();
   renderBulkInList();
-  toast(`✅ ${inCount}건 입고 완료${newCount ? ` (신규 ${newCount}개 상품 등록)` : ''}`);
+  toast(`✅ ${inCount}건 입고 완료${newCount ? ` (신규 ${newCount}개 상품 등록)` : ''}${aliasCount ? ` · 다른 이름 ${aliasCount}개 기억함` : ''}`);
 }
 
 // ========== 일괄 출고 ==========
@@ -3859,6 +4018,10 @@ async function initApp() {
   } catch(e) {
     console.warn('Supabase 연결 실패, localStorage 사용:', e);
   }
+
+  // 상품 별칭 불러오기
+  try { aliases = await dbLoadAliases(); console.log('✅ 별칭', aliases.length, '개'); }
+  catch(e) { console.warn('별칭 로드 실패:', e); }
 
   // 실사 진행 중 데이터 복원
   try {
