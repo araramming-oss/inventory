@@ -3310,10 +3310,12 @@ async function deleteSelectedIO() {
   toDelete.forEach(h => {
     const p = products.find(p => p.name === h.product);
     if (!p) return;
+    // 낱개 단위로 저장된 이력이면 박스 단위로 환산
+    const unitQty = (h.qtyUnit === '개' && p.pcs && p.pcs > 0) ? h.qty / p.pcs : h.qty;
     if (h.type === 'in') {
-      p.qty = Math.round((p.qty - h.qty) * 1000) / 1000;
+      p.qty = Math.round((p.qty - unitQty) * 1000) / 1000;
     } else {
-      p.qty = Math.round((p.qty + h.qty) * 1000) / 1000;
+      p.qty = Math.round((p.qty + unitQty) * 1000) / 1000;
     }
     if (!updatedProducts.find(up => up.code === p.code)) {
       updatedProducts.push(p);
