@@ -2098,7 +2098,12 @@ function updateIOUnit() {
   const calcText = document.getElementById('io-calc-text');
   // 박스당 낱개 수가 있으면 선택지 제공
   if (p.pcs && p.pcs > 0) {
-    unitSel.innerHTML = `<option value="unit">${p.unit} 단위</option><option value="pcs">낱개 단위</option>`;
+    // 기존 옵션이 없을 때만 새로 생성 (선택값 보존)
+    if (unitSel.options.length !== 2 || unitSel.options[0].value !== 'unit' || unitSel.options[1].value !== 'pcs') {
+      const prev = unitSel.value;
+      unitSel.innerHTML = `<option value="unit">${p.unit} 단위</option><option value="pcs">낱개 단위</option>`;
+      if (prev === 'pcs') unitSel.value = 'pcs';
+    }
     unitSel.disabled = false;
     const qty = parseInt(document.getElementById('io-qty').value)||1;
     if (unitSel.value === 'unit') {
