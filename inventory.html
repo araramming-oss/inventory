@@ -2028,6 +2028,7 @@ function buildIODropdown(list) {
     return;
   }
   dd.innerHTML = list.map(({p, i}) => {
+    const dispQty = p.pcs && p.pcs > 0 ? `${Math.round(p.qty*p.pcs)}개` : `${p.qty}${p.unit}`;
     const qtyColor = p.qty===0?'var(--danger)':p.safe>0&&p.qty<=p.safe?'var(--warning)':'var(--text2)';
     return `<div onmousedown="selectIOProduct(${i})"
       style="padding:9px 14px;cursor:pointer;font-size:13px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border)"
@@ -2039,7 +2040,7 @@ function buildIODropdown(list) {
         ${p.spec?`<span style="color:var(--text3);font-size:11px;margin-left:3px">(${p.spec})</span>`:''}
         <span style="font-size:10px;color:var(--text3);margin-left:5px;background:var(--surface2);padding:1px 5px;border-radius:3px">${p.cat}</span>
       </span>
-      <span style="font-family:monospace;font-size:12px;color:${qtyColor};margin-left:10px;flex-shrink:0">${p.qty}${p.unit}</span>
+      <span style="font-family:monospace;font-size:12px;color:${qtyColor};margin-left:10px;flex-shrink:0">${dispQty}</span>
     </div>`;
   }).join('');
 }
@@ -2268,7 +2269,9 @@ function renderStock() {
     if (p.qty === 0) { status = '품절'; badge = 'badge-danger'; }
     else if (p.qty <= p.safe) { status = '부족'; badge = 'badge-warn'; }
     else { status = '정상'; badge = 'badge-ok'; }
-    const pcsInfo = p.pcs ? `<span style="color:var(--accent);font-size:11px;font-family:monospace">${Math.round(p.qty*p.pcs)}개</span>` : '<span style="color:var(--text3);font-size:11px">-</span>';
+    const pcsInfo = p.pcs ? `<span style="color:var(--text2);font-size:11px;font-family:monospace">${p.qty}${p.unit}</span>` : '<span style="color:var(--text3);font-size:11px">-</span>';
+    const dispQty = p.pcs && p.pcs > 0 ? Math.round(p.qty * p.pcs) : p.qty;
+    const dispUnit = p.pcs && p.pcs > 0 ? '개' : p.unit;
     return `<tr>
       <td style="font-family:monospace;font-size:10px;color:var(--text3);max-width:60px;overflow:hidden;text-overflow:ellipsis">${p.code}</td>
       <td>${p.name}</td>
@@ -2276,10 +2279,10 @@ function renderStock() {
       <td style="color:var(--text2);font-size:12px">${p.spec||'-'}</td>
       <td><span class="badge badge-blue">${p.cat}</span></td>
       <td style="color:var(--text2);font-size:12px">${p.loc||'—'}</td>
-      <td style="font-family:monospace;font-weight:500">${p.qty}</td>
+      <td style="font-family:monospace;font-weight:500">${dispQty}</td>
       <td>${pcsInfo}</td>
       <td style="font-family:monospace;color:var(--text2)">${p.safe}</td>
-      <td style="color:var(--text2)">${p.unit}</td>
+      <td style="color:var(--text2)">${dispUnit}</td>
       <td><span class="badge ${badge}">${status}</span></td>
     </tr>`;
   }).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:24px">항목 없음</td></tr>';
